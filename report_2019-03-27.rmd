@@ -1,0 +1,1918 @@
+---
+title: "Graphs and tables for aging and taxes report"
+output:
+  html_notebook:
+    df_print: paged
+    fig_height: 6
+    fig_width: 8
+    toc: yes
+  html_document:
+    fig_height: 6
+    fig_width: 8
+    toc: yes
+    toc_depth: 5
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r notes, include=FALSE}
+# It can be hard to get tables to work properly. It seems like it is best to have chunk output inline.
+
+```
+
+
+```{r libs, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+#****************************************************************************************************
+#                Includes ####
+#****************************************************************************************************
+source("./r/includes/libraries.r")
+# search()
+
+source("./r/includes/globals.r")
+source("./r/includes/functions.r")
+
+```
+
+
+```{r setup_and_globals, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+fredr_set_key(globals$fred_apikey)
+
+young <- 0:19  # 0:14 or 0:19
+workage <- 20:64 # 15:64 or 20:64
+older <- 65:110
+
+agelevs <- c("young", "workage", "older", "total")
+agelabs <- c(paste0("Younger (< ", min(workage), ")"), paste0("Working age (", min(workage), "-64)"), "Older (65+)", "Total")
+
+```
+
+
+```{r source_notes, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+cps_src <- "Annual Social and Economic (ASEC) supplement to the Current Population Survey, pooled 2017 and 2018"
+wc_src <- "Weldon Cooper Center for Public Service, University of Virginia, Updated December 2018, www.coopercenter.org/demographics"
+
+```
+
+
+```{r getdata, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+# previously created or quickly created data files
+wpop <- readRDS("./data/popproj/wc_popproj.rds") # Weldon Cooper pop projections
+wmdnage <- readRDS("./data/popproj/wc_mdnage.rds") # Weldon Cooper pop projections
+
+cps_person <- readRDS("./data/cps_person.rds") # CPS person data for 2017-2018
+
+uspp_un <- readRDS("./data_raw/UnitedNations/un_popproj.rds")
+
+hhp <- readRDS("./data/ACS/acs_hhp20175year.rds") # household-person file, ACS
+
+```
+
+
+```{r ptax_data, echo=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+# NOTE: See documentation for tax values, in the ACS file_prep file
+# create taxval, with home values and prop tax values by state (including US total) and age
+
+# define low and high values for property tax
+ptlow <- c(0, 1, seq(50, 950, 50), seq(1000, 5000, 100), 5500, seq(6000, 10000, 1000))
+pthigh <- c(ptlow[-1] - 1, 12000) # need to choose a high value????
+ptax.vals <- tibble(taxp=1:68, ptax.low=ptlow, ptax.high=pthigh) %>%
+  mutate(ptax.mid=(ptlow + pthigh) / 2)
+# ptax.vals %>% ht
+
+hhp2 <- hhp %>%
+  select(-adjinc.p) %>%
+  left_join(ptax.vals %>% select(taxp, ptax=ptax.mid)) %>%
+  mutate(stabbr=stcodes$stabbr[match(st, stcodes$stfips)],
+         rvalp=valp * adjhsg,
+         rptax=ptax * adjhsg,
+         rhincp=hincp * adjinc)
+
+# by state
+stage.rptaxval <- hhp2 %>% 
+  filter(agep >= 18) %>%
+  group_by(stabbr, agep) %>%
+  summarise(rptax=weighted.mean(rptax, wgtp, na.rm=TRUE),
+            rvalp=weighted.mean(rvalp, wgtp, na.rm=TRUE))
+
+# for US
+us.rptaxval <- hhp2 %>% 
+  filter(agep >= 18) %>%
+  group_by(agep) %>%
+  summarise(rptax=weighted.mean(rptax, wgtp, na.rm=TRUE),
+            rvalp=weighted.mean(rvalp, wgtp, na.rm=TRUE)) %>%
+  mutate(stabbr="US")
+
+# combined
+rptaxval <- bind_rows(stage.rptaxval, us.rptaxval)
+rm(hhp2, stage.rptaxval, us.rptaxval)
+
+```
+
+
+
+# National tables and graphs
+## Total and general fertility rates
+### Fertility rates with CDC and World Bank data
+```{r fertrate, echo=FALSE, message=FALSE, warning=FALSE}
+
+# https://data.cdc.gov/NCHS/NCHS-Births-and-General-Fertility-Rates-United-Sta/e6fc-ccez
+
+
+# Total fertility rate represents the number of children that would be born to a woman if she were to live to the end of her 
+# childbearing years and bear children in accordance with current age-specific fertility rates.
+
+# World Bank Source: (1) United Nations Population Division. World Population Prospects, (2) United Nations Statistical Division. Population and Vital Statistics Report (various years), (3) Census reports and other statistical publications from national statistical offices, (4) Eurostat: Demographic Statistics, (5) Secretariat of the Pacific Community: Statistics and Demography Program, and (6) U.S. Census Bureau: International Database
+
+# THere are two fertility rates: the total rate (preferred), and the general rate (not preferred, but available for longer history). 
+# I plot both.
+
+# get historical general fertility rate, previously downloaded from National Center on Health Statistics (NCHS) site
+# https://data.cdc.gov/NCHS/NCHS-Births-and-General-Fertility-Rates-United-Sta/e6fc-ccez/data GENERAL fertility rate
+gfr_fn <- "NCHS_-_Births_and_General_Fertility_Rates__United_States.csv"
+gfr <- read_csv(paste0("./data_raw/NCHS/", gfr_fn))
+gfr2 <- gfr %>%
+  select(c(1, 3)) %>%
+  set_names(c("year", "gfr")) %>%
+  arrange(year)
+# tail(gfr2)
+
+# get tfr, originally from World Bank
+# World Bank, Fertility Rate, Total for the United States [SPDYNTFRTINUSA], retrieved from FRED, Federal Reserve Bank of St. Louis; https://fred.stlouisfed.org/series/SPDYNTFRTINUSA, March 13, 2019.
+
+tfr <- fredr("SPDYNTFRTINUSA", frequency = "a") %>%
+  mutate(year=year(date), value)
+tfr2 <- tfr %>%
+  mutate(year=year(date)) %>%
+  select(year, tfr=value)
+# write_csv(fr, "./data_raw/fr.csv")
+# head(tfr2)
+
+allfr <- left_join(gfr2, tfr2) %>%
+  mutate(gfr_scaled=tfr[year==1960] / gfr[year==1960] * gfr) %>%
+  select(year, gfr_scaled, tfr) %>%
+  gather(variable, value, -year)
+
+
+capt1 <- "Sources:\n Total fertility rate - World Bank Fertility Rate, Total for the United States\n (https://fred.stlouisfed.org/series/SPDYNTFRTINUSA)"
+capt2 <- "General fertility rate: National Center on Health Statistics\n https://data.cdc.gov/NCHS/NCHS-Births-and-General-Fertility-Rates-United-Sta/e6fc-ccez"
+capt3 <- "scaled downward proportionately by author to match total in 1960"
+capt <- paste0(capt1, "\n\n", capt2, "\n", capt3)
+gtitle <- "Fertility rates for the United States"
+ylab <- "Fertility rate"
+
+p <- allfr %>% 
+  filter(year >= 1930) %>%
+  mutate(variable=factor(variable, 
+                         levels=c("tfr", "gfr_scaled"),
+                         labels=c("Total fertility rate", "General fertility\nrate, scaled"))) %>%
+  ggplot(aes(year, value, colour=variable, linetype=variable, size=variable)) +
+  geom_line() +
+  scale_size_manual(values=c(1.1, .8)) +
+  scale_colour_manual(values=c("blue", "darkgrey")) +
+  scale_x_continuous(name=NULL, breaks=seq(1900, 2100, 10)) +
+  scale_y_continuous(name=ylab, breaks=seq(0, 5, 0.25), limits=c(0, NA)) +
+  theme_bw() +
+  ggtitle(gtitle) +
+  labs(caption=capt) +
+  theme(plot.caption = element_text(hjust=0, size=10)) +
+  guides(colour=guide_legend(title=NULL), size=guide_legend(title=NULL), linetype=guide_legend(title=NULL))
+
+p2 <- p + gband(1946, 1964, alpha=.4) + 
+  annotate("text", x=1949, y=0.7,
+           hjust=0,
+           vjust=0,
+           label="Baby Boomer\nbirth years")
+p2
+
+ggsave(plot=p2, filename="./results/general/fertrate.png", width=8, height=6, units="in")
+
+```
+
+```{r fertrate_ssa, echo=FALSE, message=FALSE, warning=FALSE}
+tfr <- read_csv("./data_raw/SSA/tfr_ssa.csv", skip=1)
+# ht(tfr)
+
+capt1 <- str_wrap("Source:\n The 2018 Annual Report of the Board of Trustees of the Federal Old-Age and Survivors Insurance and Federal Disability Insurance Trust Funds, Table V.A1 (https://www.ssa.gov/oact/tr/2018/tr2018.pdf)")
+capt <- capt1
+gtitle <- "Total fertility rate for the United States"
+ylab <- "Births per woman"
+
+p <- tfr %>% 
+  # filter(year >= 1930) %>%
+  bind_rows(tibble(year=2018, tfr=.33 * tfr$tfr[tfr$year==2017] + .67 * tfr$tfr[tfr$year==2020])) %>%
+  mutate(hist=ifelse(year <= 2017, "History", "Projection")) %>%
+  ggplot(aes(year, tfr, linetype=hist, colour=hist, size=hist)) +
+  geom_line() +
+  # stat_smooth(span=0.1)
+  scale_size_manual(values=c(1.1, .8)) +
+  scale_colour_manual(values=c("blue", "blue")) +
+  scale_x_continuous(name=NULL, breaks=seq(1900, 2100, 10)) +
+  scale_y_continuous(name=ylab, breaks=seq(0, 5, 0.25), limits=c(0, NA)) +
+  theme_bw() +
+  ggtitle(gtitle) +
+  labs(caption=capt) +
+  theme(plot.caption = element_text(hjust=0, size=10)) +
+  guides(colour=guide_legend(title=NULL), size=guide_legend(title=NULL), linetype=guide_legend(title=NULL))
+
+p2 <- p + gband(1946, 1964, alpha=.4) + 
+  annotate("text", 
+           x=(1946 + 1964) / 2, y=1.25,
+           size=2.75,
+           hjust=0.5,
+           vjust=0,
+           label="Baby Boom\nbirth years") 
+p2
+
+ggsave(plot=p2, filename="./results/general/fertrate_ssa.png", width=8, height=6, units="in")
+
+```
+
+
+### Fertility rates with United Nations data
+```{r fertrate_un, echo=FALSE, warning=FALSE}
+# https://unstats.un.org/unsd/demographic-social/Standards-and-Methods/files/Handbooks/fertility-and-mortality/SeriesF_92-E.pdf
+# ... the total fertility rate, calculated by summing age-specific birth rates over all reproductive ages. 
+# The total fertility rate may be interpreted as the expected number of children a woman who survives to the end of the reproductive
+# age span will have during her lifetime if she experiences the given age-specific rates. 
+
+# data_raw\UnitedNations
+# WPP2017_Period_Indicators_Medium.csv
+df <- read_csv(paste0("./data_raw/UnitedNations/", "WPP2017_Period_Indicators_Medium.csv"))
+fr.un <- df %>% filter(LocID==840) %>% # 840 is USA
+  select(year=MidPeriod, tfr=TFR)
+# ht(fr.un)
+
+dnote1 <- "Data underlying 2017 Revision of World Population Prospects, The United Nations, https://population.un.org/wpp/,"
+dnote2 <- "(https://population.un.org/wpp/DVD/Files/1_Indicators%20(Standard)/CSV_FILES/WPP2017_Period_Indicators_Medium.csv)"
+gnote1 <- "First projection year is 2016. Projection years are represented by dashed line."
+capt <- paste0("Source: ", dnote1, "\n", dnote2, "\n", gnote1)
+
+gtitle <- "Total fertility rate in the United States"
+ylab <- "Expected births per woman over entire reproductive age span"
+
+p <- fr.un %>%
+  ggplot(aes(year, tfr)) +
+  geom_line(colour="blue", size=1.3, data=fr.un %>% filter(year <= 2016)) +
+  geom_line(colour="blue", size=1.3, linetype="dashed", data=fr.un %>% filter(year > 2016)) +
+  scale_x_continuous(name=NULL, breaks=seq(1900, 2100, 5)) +
+  scale_y_continuous(name=ylab, breaks=seq(0, 100, .25), limits=c(0, NA)) +
+  theme_bw() +
+  ggtitle(gtitle) +
+  labs(caption=capt) +
+  theme(plot.caption = element_text(hjust=0, size=9)) +
+  theme(axis.text.x=element_text(angle=45,hjust=.9,vjust=0.9))
+# p
+
+p2 <- p + gband(1946, 1964, alpha=.4) + 
+  annotate("text", x=1948, y=1.5,
+           size=3,
+           hjust=0,
+           vjust=0,
+           label="Baby boom\nbirth years") 
+p2
+
+ggsave(plot=p2, filename="./results/general/fertrate_un.png", width=8, height=6, units="in")
+
+```
+
+
+## Life expectancy at birth
+### Life expectancy with World Bank data
+```{r lifeexp, echo=FALSE, message=FALSE, warning=FALSE}
+# World Bank, Life Expectancy at Birth, Total for the United States [SPDYNLE00INUSA], retrieved from FRED, Federal Reserve Bank of St. Louis; https://fred.stlouisfed.org/series/SPDYNLE00INUSA, March 13, 2019.
+
+life <- fredr("SPDYNLE00INUSA", frequency = "a") %>%
+  mutate(year=year(date), value)
+# ht(life)
+
+capt <- "Source: World Bank, Life Expectancy at Birth, Total for the United States\n(https://fred.stlouisfed.org/series/SPDYNLE00INUSA)"
+gtitle <- "Life expectancy at birth"
+ylab <- "Expected age in years"
+
+p <- life %>%
+  ggplot(aes(year, value)) +
+  geom_line(size=1.1, colour="blue") +
+  scale_x_continuous(name=NULL, breaks=seq(1900, 2100, 5)) +
+  scale_y_continuous(name=ylab, breaks=seq(0, 100, 1)) +
+  theme_bw() +
+  ggtitle(gtitle) +
+  labs(caption=capt) +
+  theme(plot.caption = element_text(hjust=0, size=10)) +
+  guides(colour=guide_legend(title=NULL), size=guide_legend(title=NULL), linetype=guide_legend(title=NULL))
+p
+ggsave(plot=p, filename="./results/general/life_exp.png", width=8, height=6, units="in")
+
+```
+
+### Life expectancy with United Nations data
+```{r lifeexp_un, echo=FALSE, fig.height=6, fig.width=8, message=FALSE, warning=FALSE, eval=FALSE}
+# data_raw\UnitedNations
+# WPP2017_Period_Indicators_Medium.csv
+df <- read_csv(paste0("./data_raw/UnitedNations/", "WPP2017_Period_Indicators_Medium.csv"))
+le.un <- df %>% filter(LocID==840) %>% # 840 is USA
+  select(year=MidPeriod, lex=LEx)
+# ht(le.un)
+# names(le.un)
+
+dnote1 <- "Data underlying 2017 Revision of World Population Prospects, The United Nations, https://population.un.org/wpp/,"
+dnote2 <- "(https://population.un.org/wpp/DVD/Files/1_Indicators%20(Standard)/CSV_FILES/WPP2017_Period_Indicators_Medium.csv)"
+gnote1 <- "First projection year is 2016. Projection years are represented by dashed line."
+capt <- paste0("Source: ", dnote1, "\n", dnote2, "\n", gnote1)
+
+gtitle <- "Life expectancy at birth"
+ylab <- "Expected age in years"
+
+p <- le.un %>%
+  ggplot(aes(year, lex)) +
+  geom_line(colour="blue", size=1.3, data=le.un %>% filter(year <= 2016)) +
+  geom_line(colour="blue", size=1.3, linetype="dashed", data=le.un %>% filter(year > 2016)) +
+  scale_x_continuous(name=NULL, breaks=seq(1900, 2100, 5)) +
+  scale_y_continuous(name=ylab, breaks=seq(0, 100, 1)) +
+  theme_bw() +
+  ggtitle(gtitle) +
+  labs(caption=capt) +
+  theme(plot.caption = element_text(hjust=0, size=10)) +
+  theme(axis.text.x=element_text(angle=45,hjust=.9,vjust=0.9))
+p
+ggsave(plot=p, filename="./results/general/life_exp_un.png", width=8, height=6, units="in")
+
+```
+
+
+### Life expectancy at birth and age 65
+
+```{r lifeexp_ssa, echo=FALSE, message=FALSE, warning=FALSE}
+le <- read_excel("./data_raw/SSA/lifeexp_ssa.xlsx", skip=1)
+# ht(le)
+# Table V.A5.—Cohort Life Expectancy
+
+capt1 <- str_wrap("Source:\n The 2018 Annual Report of the Board of Trustees of the Federal Old-Age and Survivors Insurance and Federal Disability Insurance Trust Funds, Table V.A5 (https://www.ssa.gov/oact/tr/2018/tr2018.pdf)")
+capt <- capt1
+gtitle <- "Life expectancy in the United States, Simple average of males and females"
+
+p <- le %>% 
+  # select(year, lebirth.female, le65.female) %>%
+  mutate(lebirth=(lebirth.female + lebirth.male) / 2,
+         le65=(le65.female + le65.male) / 2) %>%
+  select(year, lebirth, le65) %>%
+  gather(variable, value, -year) %>%
+  mutate(variable=factor(variable, 
+                         levels=c("lebirth", "le65"), 
+                         labels=c("Birth", "Age 65"))) %>%
+  ggplot(aes(year, value, colour=variable)) +
+  geom_line(linetype="solid", size=1.1, data=. %>% filter(year <= 2017)) +
+  geom_line(linetype="dashed", size=0.8, data=. %>% filter(year > 2017)) +
+  scale_size_manual(values=c(1.1, .8)) +
+  scale_colour_manual(values=c("blue", "darkgreen")) +
+  scale_x_continuous(name=NULL, breaks=seq(1900, 2100, 10)) +
+  scale_y_continuous(name="Number of years remaining", breaks=seq(0, 100, 5), limits=c(0, NA)) +
+  theme_bw() +
+  ggtitle(gtitle) +
+  labs(caption=capt) +
+  theme(plot.caption = element_text(hjust=0, size=10)) +
+  guides(colour=guide_legend(title="Expected years at:"))
+p
+
+ggsave(plot=p, filename="./results/general/lifeexp_ssa.png", width=8, height=6, units="in")
+
+```
+
+
+## Population shares by age group
+```{r popshares_un, echo=FALSE, fig.height=6, fig.width=8, message=FALSE, warning=FALSE}
+popage <- uspp_un %>%
+  select(year, age, pop) %>%
+  mutate(agroup=case_when(age %in% young ~ agelevs[1],
+                          age %in% workage ~agelevs[2],
+                          age %in% older ~ agelevs[3],
+                          TRUE ~ "error"))
+# count(popage, agroup)
+# min(popage$year) # 1950
+
+# get totals by group and for all
+popshares <- popage %>%
+  group_by(year, agroup) %>%
+  summarise(pop=sum(pop)) %>%
+  group_by(year) %>%
+  mutate(pop_pct=pop / sum(pop) * 100) %>%
+  ungroup %>%
+  arrange(year, agroup)
+
+dnote1 <- "Data underlying 2017 Revision of World Population Prospects, The United Nations, https://population.un.org/wpp/,"
+dnote2 <- "(https://population.un.org/wpp/DVD/Files/1_Indicators%20(Standard)/CSV_FILES/WPP2017_PopulationBySingleAgeSex.csv)"
+gnote1 <- "First projection year is 2016, at which point lines are dotted."
+capt <- paste0("Source: ", dnote1, "\n", dnote2, "\n", gnote1)
+
+gtitle <- "Percentage of total U.S. population, by age group"
+
+pdat <- popshares %>%
+    filter(year >= 1950, year <= 2040) %>%
+    mutate(agroup=factor(agroup, 
+                       levels=agelevs,
+                       labels=agelabs))
+p <- pdat %>%
+  ggplot(aes(year, pop_pct, colour=agroup)) +
+  geom_line(size=1.3, data=pdat %>% filter(year <= 2016)) +
+  geom_line(size=1.3, linetype="dotted", data=pdat %>% filter(year > 2016)) +
+  scale_colour_manual(values=c("red", "darkgreen", "blue")) +
+  scale_x_continuous(name=NULL, breaks=seq(1940, 2100, 5)) +
+  scale_y_continuous(name="Share of total population (%)", breaks=seq(0, 100, 10), limits=c(0, NA)) +
+  ggtitle(gtitle) +
+  labs(caption=capt) +
+  guides(colour=guide_legend(title=NULL)) +
+  theme_bw() +
+  theme(plot.caption = element_text(hjust=0, size=9)) +
+  theme(axis.text.x=element_text(angle=45,hjust=.9,vjust=0.9))
+# p
+
+p2 <- p + 
+  gband(1946, 1964, alpha=.4) + 
+  annotate("text", x=1955, y=20,
+           hjust=0.5,
+           vjust=0,
+           label="Baby Boom\nbirth years")
+# p2
+
+p3 <- p2 + 
+  gband(2011, 2029, alpha=.4) + 
+  annotate("text", x=2020, y=40,
+           hjust=0.5,
+           vjust=0,
+           label="Baby Boomers\nturn 65")
+p3
+
+ggsave(plot=p3, filename="./results/general/uspopshares_subgroups.png", width=8, height=6, units="in")
+
+```
+
+## Population growth rates
+```{r popgrowth_subgroups_un, echo=FALSE, message=FALSE, warning=FALSE}
+# 3-4 groups: kids, workage, older, total
+# get history
+# unique(wpop$popgroup)
+
+popage <- uspp_un %>%
+  select(year, age, pop) %>%
+  mutate(agroup=case_when(age %in% young ~ agelevs[1],
+                          age %in% workage ~agelevs[2],
+                          age %in% older ~ agelevs[3],
+                          TRUE ~ "error"))
+# count(popage, agroup)
+# min(popage$year) # 1950
+
+# get totals by group and for all
+popsums <- popage %>%
+  group_by(year, agroup) %>%
+  summarise(pop=sum(pop))
+
+popsums.all <-  bind_rows(popsums,
+                          popsums %>% group_by(year) %>% summarise(pop=sum(pop)) %>% mutate(agroup="total")) %>%
+  ungroup %>%
+  mutate(agroup=factor(agroup, levels=agelevs))
+# count(popsums.all, agroup)
+
+# growth rates
+popgr <- popsums.all %>%
+  group_by(agroup) %>%
+  arrange(year) %>%
+  mutate(gr=pop / pop[match(year - 1, year)] * 100 - 100,
+         gr.ma=ma(gr, 3, align="center")) %>%
+  ungroup %>%
+  arrange(agroup, year)
+# ht(popgr)
+
+#.. Now make the graph ----
+dnote1 <- "Data underlying 2017 Revision of World Population Prospects, The United Nations, https://population.un.org/wpp/,"
+dnote2 <- "(https://population.un.org/wpp/DVD/Files/1_Indicators%20(Standard)/CSV_FILES/WPP2017_PopulationBySingleAgeSex.csv)"
+gnote1 <- "Notes: Growth rate is 3-year centered moving average to avoid focus on spurious movements."
+gnote2 <- "Projections begin in 2016, marked by dashed lines."
+capt <- paste0("Source: ", dnote1, "\n", dnote2, "\n", gnote1, "\n", gnote2)
+
+gtitle <- "U.S. Population growth rates by age group"
+
+p <- popgr %>%
+  filter(year >= 1950, year <= 2040) %>%
+  mutate(agroup=factor(agroup, 
+                       levels=agelevs,
+                       labels=agelabs)) %>%
+  ggplot(aes(year, gr.ma, colour=agroup, size=agroup)) +
+  geom_line(linetype="solid", data=. %>% filter(year < 2016)) +
+  geom_line(linetype="dashed", data=. %>% filter(year >= 2016)) +
+  scale_size_manual(values=c(rep(.8, 3), 1.4)) +
+  scale_colour_manual(values=c("red", "darkgreen", "blue", "black")) +
+  scale_x_continuous(name=NULL, breaks=seq(1940, 2100, 5)) +
+  scale_y_continuous(name="Growth rate (%)", breaks=seq(-5, 5, .5)) +
+  geom_hline(yintercept = 0) +
+  ggtitle(gtitle) +
+  labs(caption=capt) +
+  guides(colour=guide_legend(title=NULL), size=guide_legend(title=NULL)) +
+  theme_bw() +
+  theme(plot.caption = element_text(hjust=0, size=9)) +
+  theme(axis.text.x=element_text(angle=45,hjust=.9,vjust=0.9))
+# p
+
+p2 <- p + 
+  gband(1946, 1964, alpha=.4) + 
+  annotate("text", x=1955, y=1,
+           hjust=0.5,
+           vjust=0,
+           label="Baby Boom\nbirth years")
+
+p3 <- p2 + 
+  gband(2011, 2029, alpha=.4) + 
+  annotate("text", x=2020, y=1.5,
+           hjust=0.5,
+           vjust=0,
+           label="Baby Boomers\nturn 65")
+# p2
+
+
+p3
+
+ggsave(plot=p3, filename="./results/general/uspopgr_subgroups.png", width=8, height=6, units="in")
+
+```
+
+## Old-age dependency ratio
+```{r oldagedepratio_un, echo=FALSE, message=FALSE, warning=FALSE}
+
+# create file to link age groups across data sources
+
+# ht(uspp_un)
+
+popdr <- uspp_un %>%
+  select(year, age, pop) %>%
+  mutate(agroup=case_when(age %in% young ~ agelevs[1],
+                          age %in% workage ~agelevs[2],
+                          age %in% older ~ agelevs[3],
+                          TRUE ~ "error")) %>%
+  group_by(year, agroup) %>%
+  summarise(pop=sum(pop)) %>%
+  spread(agroup, pop) %>%
+  mutate(oadr=older / workage * 100)
+
+#.. Now make the graph ----
+dnote1 <- "Data underlying 2017 Revision of World Population Prospects, The United Nations, https://population.un.org/wpp/,"
+dnote2 <- "(https://population.un.org/wpp/DVD/Files/1_Indicators%20(Standard)/CSV_FILES/WPP2017_PopulationBySingleAgeSex.csv)"
+gnote1 <- "First projection year is 2016. Projection years are represented by dashed line."
+gnote2 <- paste0("Working age defined as ", min(workage), "-64, older defined as 65+.")
+capt <- paste0("Source: ", dnote1, "\n", dnote2, "\n", gnote1, " ", gnote2)
+
+gtitle <- "Old age dependency ratio: Older population per 100 working age population"
+
+pdat <- popdr %>%
+  filter(year >= 1950, year <= 2040)
+
+p <- pdat %>%
+  ggplot(aes(year, oadr)) +
+  geom_line(colour="blue", size=1.3, data=pdat %>% filter(year <= 2016)) +
+  geom_line(colour="blue", size=1.3, linetype="dashed", data=pdat %>% filter(year > 2016)) +
+  scale_x_continuous(name=NULL, breaks=seq(1940, 2100, 5)) +
+  scale_y_continuous(name="Old age dependency ratio", breaks=seq(0, 50, 2), limits=c(0, NA)) +
+  ggtitle(gtitle) +
+  labs(caption=capt) +
+  theme_bw() +
+  theme(plot.caption = element_text(hjust=0, size=9)) +
+  theme(axis.text.x=element_text(angle=45,hjust=.9,vjust=0.9))
+
+# p
+
+p2 <- p + 
+  gband(2011, 2029, alpha=.4) + 
+  annotate("text", x=2020, y=12,
+           hjust=0.5,
+           vjust=0,
+           label="Baby Boomers\nturn 65")
+# 1946 – 1964 baby boom birth years
+p2
+
+# p3 <- p2 + 
+#   gband(1946, 1964, alpha=.4) + 
+#   annotate("text", x=1955, y=8,
+#            hjust=0.5,
+#            vjust=0,
+#            label="Baby Boomer\nbirth years")
+# p3
+
+ggsave(plot=p2, filename="./results/general/agedep_un.png", width=8, height=6, units="in")
+
+```
+
+
+# Specific taxes (with national and state-specific tables)
+## Revenue structures of the case-study states
+```{r revstruc, echo=FALSE, message=FALSE, warning=FALSE}
+storder <- c("US", globals$case_study_states)
+strev <- slgfin %>% 
+  filter(year==2016, 
+         aggvar %in% c("osr", "tottax", "iit", "gst", "selsalestax", "proptax"),
+         stabbr %in% storder) %>%
+  mutate(stabbr=factor(stabbr, levels=storder),
+         stname=getstname(stabbr)) %>%
+  select(stabbr, stname, level, levf, aggvar, value) %>%
+  spread(aggvar, value) %>%
+  mutate_at(vars(-stabbr, -stname, -level, -levf), ~naz(.)) %>%
+  mutate(nontax=osr - tottax,
+         othertax=tottax - gst - iit - selsalestax - proptax) %>%
+  select(stabbr, stname, level, levf, osr, nontax, tottax, iit, gst, selsalestax, proptax, othertax) %>%
+  mutate_at(vars(-stabbr, -stname, -level, -levf), funs(s=. / osr * 100))
+strev %>% write_csv("./results/taxes/css_revshares.csv")
+
+f <- function(lev){
+strev %>% 
+  filter(level==lev) %>%
+  select(stabbr, stname, levf, contains("_s")) %>%
+  kable(caption="Revenue as share of own-source revenue in 2016",
+        digits=c(rep(0, 3), rep(1, 8)),
+        format.args=list(big.mark=",")) %>%
+  kable_styling(full_width = FALSE) %>%
+  footnote(general_title="Source:", general = "Census Bureau Annual Survey of State and Local Government Finances, 2016")
+}
+
+f(1)
+f(2)
+f(3)
+
+```
+
+
+
+## Income tax
+### National income shares and changes (SOI data)
+```{r get_retinc, echo=FALSE, message=FALSE, warning=FALSE}
+#.. SOI data prep
+soinote <- "IRS Statistics of Income, Historical Table 2, https://www.irs.gov/statistics/soi-tax-stats-historic-table-2"
+
+soivars <- c("agi", "wages", "iradist", "txblpension", "txblsocsec", "txblinterest", "odividends", "netcgll")
+
+soidat <- soiall %>% 
+  filter(stabbr %in% c("US", globals$case_study_states),
+         incgrp=="all", 
+         vname %in% soivars, 
+         year %in% c(2009, 2016)) %>%
+  mutate(stname=getstname(stabbr)) %>%
+  select(year, stabbr, stname, vname, value) %>%
+  spread(vname, value) %>%
+  mutate(retinc=iradist + txblpension + txblsocsec,
+         non_wage_cg_retagi=agi - wages - retinc - netcgll,
+         intdiv=txblinterest + odividends) %>%
+  gather(vname, value, -stabbr, -stname, -year)
+
+
+# get a table of changes that we could look at for US or for a state
+vorder <- c("agi", "wages", "retinc", "txblpension", "iradist", "txblsocsec", "non_wage_cg_retagi", "netcgll")
+soichanges <- soidat %>% 
+  filter(year %in% c(2009, 2016), vname %in% vorder) %>%
+  mutate(stabbr=factor(stabbr, levels=c("US", globals$case_study_states)), # for ordering
+                       vname=factor(vname, levels=vorder)) %>%
+  mutate(value=value / 1e6,
+         year=paste0("val_", year)) %>%
+  spread(year, value) %>%
+  group_by(stabbr, stname) %>%
+  mutate(val_change=val_2016 - val_2009,
+         val_pch=val_2016 / val_2009 * 100 - 100,
+         pctshare_of_change=val_change / val_change[vname=="agi"] * 100,
+         pctshare_2009=val_2009 / val_2009[vname=="agi"] * 100,
+         pctshare_2016=val_2016 / val_2016[vname=="agi"] * 100,
+         pctshare_change=pctshare_2016 - pctshare_2009) %>%
+  ungroup
+
+soichanges %>%
+  filter(stabbr %in% globals$case_study_states) %>%
+  write_csv("./results/states/css_soichanges.csv")
+
+```
+
+
+```{r soi, echo=FALSE, message=FALSE, warning=FALSE}
+state_soi_changes <- function(stabbr.in){
+  stname <- getstname(stabbr.in)
+  capt <- paste0("Retirement income and other income in ", stname, " (Amounts are in $ billions)")
+  soichanges %>%
+    filter(stabbr==stabbr.in) %>%
+    select(-stabbr, -pctshare_change) %>%
+    kable(caption=capt, digits=c(rep(0, 2), rep(1,3), rep(1, 4)), format.args=list(big.mark=",")) %>%
+    kable_styling(full_width = FALSE) %>%
+    footnote(general_title="Source:", general = soinote)
+}
+# print(f("US"))
+```
+
+
+```{r pit_soi_national, echo=FALSE, message=FALSE, warning=FALSE}
+state_soi_changes("US")
+
+```
+
+
+### Case-study states income shares and changes (SOI data)
+```{r pit_soi_css, echo=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+state_soi_changes("CA")
+state_soi_changes("NH")
+state_soi_changes("NY")
+state_soi_changes("OH")
+state_soi_changes("TN")
+state_soi_changes("TX")
+
+```
+
+
+
+### Money income, and state income tax, by age for United States and case-study states (CPS data)
+
+```{r pitcps_prep, echo=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+#.. stage -- state age analysis build the data ----
+pit_stage.st <- cps_person %>% 
+  filter(age>=18) %>%
+  group_by(stabbr, age) %>%
+  summarise(weight=sum(marsupwt),
+            rtax=weighted.mean(rtax, marsupwt, na.rm=TRUE),
+            rincome=weighted.mean(rincome, marsupwt, na.rm=TRUE))
+
+pit_stage.us <- cps_person %>% 
+  filter(age>=18) %>%
+  group_by(age) %>%
+  summarise(weight=sum(marsupwt),
+            rtax=weighted.mean(rtax, marsupwt, na.rm=TRUE),
+            rincome=weighted.mean(rincome, marsupwt, na.rm=TRUE)) %>%
+  mutate(stabbr="US")
+
+pit_stage <- bind_rows(pit_stage.st, pit_stage.us)
+# ht(pit_stage)
+
+usitax <- pit_stage %>%
+  gather(variable, value, rincome, rtax) %>%
+  group_by(stabbr, variable) %>%
+  mutate(ivalue=value / value[age==50] * 100,
+         smooth=loess(value ~ age)$fitted,
+         ismooth=smooth / smooth[age==50] * 100) %>%
+  ungroup
+
+```
+
+
+```{r cps_pit_graph, echo=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+dnote1 <- "Author's analysis of "
+dnote3 <- "Values are weighted means by age, smoothed with local regression."
+capt <- paste0("Source: ", "\n", dnote1, cps_src, "\n", dnote3)
+capt <- paste0("Source: ", dnote1, cps_src, ". ", dnote3)
+# capt
+capt <- str_wrap(capt, 80)
+
+gtitle <- "Total income and state and local income taxes in the United States"
+subt <- "Indexed to age=50"
+
+p <- usitax %>%
+  filter(stabbr=="US") %>%
+  mutate(variable=factor(variable, levels=c("rincome", "rtax"), labels=c("Income", "State-local income tax"))) %>%
+  ggplot(aes(age, ismooth, colour=variable)) +
+  geom_line(size=1.3) +
+  scale_colour_manual(values=c("blue", "darkgreen")) +
+  scale_x_continuous(name="Individual age", breaks=seq(0, 100, 5)) +
+  scale_y_continuous(name="Indexed value (100 at age 50)", breaks=seq(0, 200,5)) +
+  geom_hline(yintercept = 100) +
+  ggtitle(gtitle, subtitle=subt) +
+  labs(caption=capt) +
+  guides(colour=guide_legend(title=NULL)) +
+  theme_bw() +
+  theme(plot.caption = element_text(hjust=0, size=9)) +
+  theme(axis.text.x=element_text(angle=0,hjust=.9,vjust=0.9))
+p
+ggsave(plot=p, filename="./results/taxes/pit/income_itax.png", width=8, height=6, units="in")
+
+```
+
+
+```{r cpspit_css, echo=FALSE, message=FALSE, warning=FALSE}
+# table with info on income
+# globals$wc_young <- c("pop00_04", "pop05_09", "pop10_14", "pop15_19")
+# globals$wc_workage <- c("pop20_24", "pop25_29", "pop30_34", "pop35_39", "pop40_44", "pop45_49", "pop50_54", "pop55_59", "pop60_64")
+# globals$wc_older <- c("pop65_69", "pop70_74", "pop75_79", "pop80_84", "pop85plus")
+# dnote1 <- 
+# dnote2 <- "Pooled from the 2017 and 2018 ASEC files"
+fnote <- str_wrap(paste0("Author's analysis of ", cps_src, "."))
+
+grouped <- pit_stage %>%
+  filter(age >= 50) %>%
+  mutate(agegroup=case_when(age %in% 50:64 ~ "age50_64",
+                            age %in% 65:110 ~ "age65plus",
+                            TRUE ~ "other")) %>%  
+  group_by(stabbr, agegroup) %>%
+  summarise(rincome=weighted.mean(rincome, weight),
+            rtax=weighted.mean(rtax, weight)) %>%
+  ungroup
+
+storder <- c("US", globals$case_study_states)
+grouped %>%
+  filter(stabbr %in% storder) %>%
+  mutate(stabbr=factor(stabbr, levels=storder),
+         stname=getstname(stabbr)) %>%
+  arrange(stabbr) %>%
+  select(-stabbr, -rincome) %>%
+  spread(agegroup, rtax) %>%
+  mutate(change=age65plus - age50_64,
+         pct_change=change / age50_64 * 100) %>%
+  kable(caption="State and local income tax per person, selected ages, 2017 dollars", 
+        digits=c(rep(0, 4), 1), format.args=list(big.mark=",")) %>%
+  kable_styling(full_width = FALSE) %>%
+  footnote(general_title="Source:", general = fnote)
+
+```
+
+### State-local income tax (CPS data) recalculated using projected population (Weldon Cooper)
+```{r pitcalc_dataprep, echo=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+# data preparation
+
+# .. prepare the Weldon Cooper data ----
+# for each state, age group, and projection year and get state pop
+wpop_prep <- wpop %>% 
+  filter(sex=="Total", popgroup!="poptot") %>%
+  select(stabbr, year, popgroup, wcpop=value) %>%
+  group_by(year, stabbr) %>%
+  mutate(wcpop_state=sum(wcpop)) %>%
+  ungroup
+# wpop_prep %>% filter(stabbr=="NY")
+# wpop_prep %>% filter(stabbr=="US")
+
+# .. make a data frame that marries age breaks with Weldon Cooper pop groups, for linking data files ----
+wc_groups <- setdiff(unique(wpop$popgroup), "poptot")
+agebrks <- c(-1, seq(4, 84, 5), 1e9) # these breaks correspond to the Weldon Cooper cut points
+# cbind(c(wc_groups, NA), agebrks)
+agegroups <- tibble(age=1:100, agebrk=cut(age, agebrks)) %>%
+  group_by(agebrk) %>%
+  summarise(n=n()) %>%
+  mutate(popgroup=wc_groups) %>%
+  select(-n)
+# agegroups # good, we can use this for linking
+
+
+# .. prepare CPS tax data for analysis and for merging against pop projections data - get wtdn and rtax by state-age groups ----
+# - cps_person has one rec per person in 2017 and one per 2018; rtax is real state tax (2017 dollars)
+# - it has ~180k obs per year; marsupwt is the weight
+# - total population and mean rtax by state and age group, plus total pop [2017, 2018 pooled]
+# - thus, all the pops are 2-year sums; the taxes are average annual tax
+cpspop_state_age <- cps_person %>%
+  mutate(avgweight=marsupwt / 2, # CUT THE WEIGHT IN HALF TO REFLECT 2 years !!!!
+         agebrk=cut(age, agebrks)) %>%
+  group_by(stabbr, agebrk) %>%
+  summarise(cpspop=sum(avgweight), 
+            cpspit_pc=weighted.mean(rtax, avgweight)) %>%
+  left_join(agegroups) %>% # this allows us to link to Weldon Cooper projections
+  group_by(stabbr) %>%
+  mutate(cpspop_state=sum(cpspop)) %>%
+  ungroup %>%
+  select(stabbr, agebrk, popgroup, cpspit_pc, cpspop, cpspop_state)
+
+pit_df <- cpspop_state_age %>%
+  right_join(wpop_prep %>% filter(stabbr!="US")) %>%
+  mutate(cpspit_level=cpspit_pc * cpspop, 
+         wcpit_pc_share=cpspit_pc * wcpop / wcpop_state,
+         wcpit_level=cpspit_pc * wcpop) %>%
+  select(stabbr, agebrk, popgroup, year, cpspop, cpspop_state, cpspit_pc, cpspit_level, everything())
+# pit_df %>% filter(stabbr=="NY")
+write_csv(pit_df, "./results/taxes/pit/pit_df.csv") # importrant results
+
+```
+
+
+
+```{r pitdata_css, echo=FALSE, message=FALSE, warning=FALSE}
+# prepare data to make a table for any state
+# table for individual states
+addtots <- function(df) {
+  lastrow <- df %>%
+    group_by(stabbr, year) %>%
+    summarise_at(vars(cpspop, cpspit_level, wcpop, wcpit_level), ~sum(.)) %>%
+    mutate(pgroup="total")
+  bind_rows(df, lastrow)
+  }
+eld_noneld_st <- pit_df %>%
+  mutate(pgroup=ifelse(popgroup %in% globals$wc_older, "65plus", "< 65")) %>%
+  group_by(stabbr, year, pgroup) %>%
+  summarise_at(vars(cpspop, cpspit_level, wcpop, wcpit_level), ~sum(.)) %>%
+  group_by(stabbr, year) %>%
+  do(addtots(.))
+enone_tabs <- eld_noneld_st %>%
+  group_by(stabbr) %>%
+  filter(year %in% c(2020, 2040)) %>%
+  mutate(wcpit_pc=wcpit_level / wcpop,
+         wcpopk=wcpop / 1000) %>%
+  select(stabbr, year, pgroup, wcpopk, wcpit_pc, wcpit_level) %>%
+  gather(variable, value, wcpopk, wcpit_pc, wcpit_level) %>%
+  unite(vyear, variable, year) %>%
+  spread(vyear, value) %>%
+  mutate(wcpopk_pch=wcpopk_2040 / wcpopk_2020 * 100 - 100,
+         wcpit_pc_pch=wcpit_pc_2040 / wcpit_pc_2020 * 100 - 100,
+         wcpit_level_pch=wcpit_level_2040 / wcpit_level_2020 * 100 - 100) %>%
+  select(stabbr, pgroup, contains("wcpopk"), contains("wcpit_pc"), contains("wcpit_level")) %>%
+  ungroup
+
+# create a csv file
+enone_tabs %>% 
+    filter(stabbr %in% globals$case_study_states) %>%
+    mutate(stname=getstname(stabbr)) %>%
+    select(stabbr, stname, everything()) %>%
+    write_csv(paste0("./results/taxes/pit/", "css_pitchanges.csv"))
+
+# now show tables for individual states
+pit_src <- "Author's analysis of (1) data from the Annual Social and Economic (ASEC) supplement to the Current Population Survey, pooled 2017 and 2018, and (2) projections from the Weldon Cooper Center for Public Service, University of Virginia, Updated December 2018, www.coopercenter.org/demographics."
+pittab <- function(st){
+  enone_tabs %>% 
+    filter(stabbr==st) %>%
+    mutate(stname=getstname(stabbr)) %>%
+    select(stabbr, stname, everything()) %>%
+    kable(caption="Changing age composition and state-local income taxes",
+          digits=c(rep(0, 5), 1, 0, 0, 1, 0, 0, 1),
+          format.args = list(big.mark=",")) %>%
+    kable_styling(full_width = FALSE) %>%
+    footnote(general_title="Source:", general = pit_src)
+}
+
+```
+
+
+### Case-study state tables -- State-local income tax (CPS data) recalculated using projected population (Weldon Cooper)
+```{r pittabs_css, echo=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+pittab("CA")
+pittab("NH")
+pittab("NY")
+pittab("OH")
+pittab("TN")
+
+```
+
+
+
+### Cross-case-study-state tables -- State-local income tax (CPS data) recalculated using projected population (Weldon Cooper)
+```{r pit_comptable_css, echo=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+enone_tabs %>% 
+    filter(stabbr %in% globals$case_study_states, pgroup=="total") %>%
+    mutate(stname=getstname(stabbr)) %>%
+    select(stabbr, stname, contains("pch")) %>%
+      kable(caption="Percentage change from 2020 to 2040 in projected population, per-capita income tax, and total income tax, 2017 dollars",
+          digits=c(0, 0, 1, 1, 1),
+          format.args = list(big.mark=",")) %>%
+    kable_styling(full_width = FALSE) %>%
+    footnote(general_title="Source:", general = pit_src)
+
+```
+
+
+```{r pitchanges, echo=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+# combine summarized cps tax data  with pop projections
+# %>% mutate(wcpit_pc=cpspit_pc * wcpop / wcpop_state, wcpit_tot=cpspit_pc * wcpop)
+# pit_df
+
+# calculate two kinds of tax changes (1) only changing age composition (use shares), giving per capita values, and
+# (2) using pop levels, allowing us to calculate growth
+pit_state <- pit_df %>%
+  group_by(stabbr, year) %>%
+  summarise(cpspit_pc=sum(cpspit_pc * cpspop / cpspop_state),
+            cpspit_level=sum(cpspit_level),
+            wcpit_pc=sum(wcpit_pc_share),
+            wcpit_level=sum(wcpit_level),
+            wcpop_state=first(wcpop_state)) %>%
+  group_by(stabbr) %>%
+  mutate(wcpit_level_pc2020=wcpit_pc[year==2020] * wcpop_state) %>%
+  ungroup
+# pit_state %>% filter(stabbr=="NY")
+
+# let's look at 2020 to 2040 changes
+pit_changes <- pit_state %>%
+  filter(year %in% c(2020, 2040)) %>%
+  select(stabbr, year, starts_with("wc")) %>%
+  gather(variable, value, -stabbr, -year) %>%
+  spread(year, value) %>%
+  mutate(variable=factor(variable, levels=c("wcpop_state", "wcpit_pc", "wcpit_level", "wcpit_level_pc2020")),
+         change=`2040` - `2020`,
+         pct_change=change / `2020` * 100) %>%
+  arrange(stabbr, variable)
+
+# These are the key pit results so save them
+write_csv(pit_changes, "./results/taxes/pit/pit_changes.csv")
+
+```
+
+
+```{r pit_datacheck, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE, eval=FALSE}
+#.. quick check of implied pit in the cps vs iit in census -- years don't match quite correctly of course
+sgcomp <- pit_shares %>%
+  group_by(stabbr) %>%
+  summarise(taxcps=sum(taxcps) / 1e6) %>%
+  left_join(slgfin %>% filter(level==2, aggvar=="iit", year==2016) %>% select(stabbr, taxcen=value) %>% mutate(taxcen=taxcen / 1000)) %>%
+  mutate(pdiff=taxcps / taxcen * 100 - 100,
+         level="sg")
+slgcomp <- pit_shares %>%
+  group_by(stabbr) %>%
+  summarise(taxcps=sum(taxcps) / 1e6) %>%
+  left_join(slgfin %>% filter(level==1, aggvar=="iit", year==2016) %>% select(stabbr, taxcen=value) %>% mutate(taxcen=taxcen / 1000)) %>%
+  mutate(pdiff=taxcps / taxcen * 100 - 100,
+         level="slg")
+
+taxcomp <- bind_rows(sgcomp, slgcomp)
+
+taxcomp %>% 
+  arrange(-abs(pdiff))
+
+taxcomp %>% filter(stabbr=="NY")
+taxcomp %>% filter(stabbr %in% globals$case_study_states) %>% arrange(stabbr, level)
+# wow they are pretty far off
+
+cor(taxcomp %>% filter(level=="slg", !is.na(taxcen)) %>% select(starts_with("tax")))
+cor(taxcomp %>% filter(level=="sg", !is.na(taxcen)) %>% select(starts_with("tax")))
+# but correlations are very high
+
+```
+
+
+### 50-state scatterplot -- State-local income tax (CPS data) recalculated using projected population (Weldon Cooper)
+```{r pit_scatter, echo=FALSE, message=FALSE, warning=FALSE}
+
+xstates <- c("US", "DC", setdiff(globals$nonpit_states, globals$case_study_states)) # define states to exclude
+
+pdata <- pit_changes %>%
+  filter(!stabbr %in% xstates, variable=="wcpit_pc") %>%
+  mutate(pct_change=pct_change / 100)
+usvals <- pdata %>% summarise_at(vars(pct_change, change), ~median(., na.rm=TRUE))
+
+l1 <- "Source: Author's analysis of data from Current Population Survey and from University of Virginia, Weldon Cooper Center for Public Service (Updated December 2018)."
+l2 <- "Notes: (1) States without broad-based income taxes excluded (including case-study state Texas). (2) Analysis is similar to Felix & Watkins 2013, with updated information."
+wraplen <- 100
+srcnote <- paste0("\n", str_wrap(l1, wraplen), "\n", str_wrap(l2, wraplen))
+
+p <- pdata %>%
+  mutate(stype=ifelse(stabbr %in% globals$case_study_states, "Case study\nstates", "Other states"),
+         lsize=ifelse(stype=="Other", 3, 4)) %>%
+  ggplot(aes(x=pct_change, y=change, label=stabbr)) + 
+  theme_bw() +
+  # geom_text_repel(aes(colour=stype, size=stype), fontface = "bold") +
+  # geom_text(aes(colour=stype, size=stype), fontface = "bold") +
+  geom_text_repel(aes(colour=stype, size=stype), fontface = "bold", point.padding = NA) +
+  scale_x_continuous(name="Percent change in per-capita income tax",
+                     labels = scales::percent_format(accuracy=1),
+                     breaks=seq(-.5, .5, .01)) +
+  scale_y_continuous(name="Dollar change in per-capita income tax",
+                     labels = scales::dollar, 
+                     breaks=seq(-100, 100, 20)) +
+  scale_colour_manual(values=c("darkred", "blue", "#636363")) +
+  scale_size_manual(values=c(3.5, 3.5, 3)) +
+  geom_hline(yintercept=usvals$change) +
+  geom_vline(xintercept=usvals$pct_change) +
+  geom_hline(yintercept=0, linetype="dashed", colour="darkblue") +
+  geom_vline(xintercept=0, linetype="dashed", colour="darkblue") +
+  ggtitle(label="Impact on per-capita income tax of moving from projected 2020 to 2040 age distribution (2017 dollars)",
+          subtitle="Horizontal and vertical lines show medians for income-tax states") +
+  labs(caption=srcnote) +
+  theme(plot.title = element_text(size=rel(1))) +
+  theme(plot.subtitle = element_text(size=rel(1))) +
+  theme(axis.title = element_text(size=rel(1))) +
+  theme(axis.text = element_text(size=rel(1))) +
+  theme(plot.caption = element_text(hjust=0, size=8)) +
+  guides(colour=guide_legend(title=NULL), size=guide_legend(title=NULL))
+p
+ggsave(plot=p, filename="./results/taxes/pit/pit_demog.png", width=8, height=6, units="in")
+```
+
+
+## Sales tax (based on Consumer Expenditure Survey (CEX))
+
+```{r taxable_sales, echo=FALSE, message=FALSE, warning=FALSE}
+cex_misc <- readRDS("./data/CEX/cex_misc.rds")
+cex_expend <- readRDS("./data/CEX/cex_expend")
+
+misc_wide <- cex_misc %>%
+  filter(agegroup!="total", vname %in% c("incomebt", "ageref", "people")) %>% 
+  select(-item) %>% 
+  spread(vname, value)
+
+# get goods & services spending so we can compare taxable to total
+gsexp <- cex_expend %>%
+  filter(vname %in% c("v001", "v099", "v100", "v101", "v102")) %>%
+  select(vname, agegroup, gsexp_avg=exp_avg, gsexp_m=exp_m) %>%
+  gather(vtype, value, gsexp_avg, gsexp_m) %>%
+  spread(vname, value) %>%
+  mutate(gsexp=v001 - v099 - v100 - v101 - v102) %>%
+  select(agegroup, vtype, gsexp) %>%
+  spread(vtype, gsexp)
+gsexp
+
+#.. Get tax rules
+taxrules.tmp <- read_excel(paste0("./data/CEX/", "CEX_Taxable_Crosswalk.xlsx"), skip=1)
+taxrules <- taxrules.tmp %>%
+  filter(str_sub(vname, 1, 1)=="v") %>%
+  mutate_at(vars(felix, pew, CA, NH, NY, OH, TN, TX), ~naz(.)) %>%
+  mutate(tot=select(., felix, pew, CA, NH, NY, OH, TN, TX) %>% rowSums()) %>%
+  filter(tot!=0)
+
+# .. Merge tax rules with expend data
+taxexp <- taxrules %>%
+  select(-c(tot, level, linenum)) %>%
+  left_join(cex_expend %>% filter(agegroup!="total") %>% select(-level)) %>%
+  mutate_at(vars(felix, pew, CA, NH, NY, OH, TN, TX), 
+            list(taxexp_avg=~(. * exp_avg),
+                 taxexp_m=~(. * exp_avg * nunitsk /1000))) %>% # # millions
+  select(vname, item, agegroup, nunitsk, exp_avg, exp_m, everything())
+# ht(taxexp)
+
+# what is taxable, by age group and state?
+taxexp %>%
+  select(agegroup, ends_with("_m")) %>%
+  group_by(agegroup) %>%
+  summarise_all(list(sum)) %>%
+  adorn_totals() %>%
+  mutate_at(vars(-agegroup, -exp_m), ~. / exp_m * 100) %>%
+  kable(digits=c(0, 0, rep(1, 8)), format.args=list(big.mark=","))
+
+basic_cex <- taxexp %>%
+  select(agegroup, ends_with("_avg")) %>%
+  group_by(agegroup) %>%
+  summarise_all(list(sum)) %>%
+  # bring in goods exp and also income
+  left_join(misc_wide %>% select(agegroup, incomebt, ageref)) %>%
+  left_join(gsexp %>% select(agegroup, gsexp_avg)) %>%
+  select(agegroup, ageref, incomebt, gsexp_avg, everything())
+
+```
+
+
+```{r}
+basic_cex %>%
+  kable(caption="CEX expends, different laws", digits=0, format.args=list(big.mark=","))
+```
+
+
+### U.S. plot of income, goods expends, sales tax base
+```{r gst, echo=FALSE, message=FALSE, warning=FALSE}
+vars <- c("incomebt", "gsexp_avg", "pew_taxexp_avg")
+vlabs <- c("Income before tax",  
+          "Goods & services\nexpenditures", 
+          "Commonly taxable\nexpenditures")
+
+# brks <- seq(20, 80, 10)
+brks <- c(21.4, 29.8, 39.3, 49.7, 59.4, 69, 81.5)
+xlabs <- c("20 to 24", "25 to 34", "35 to 44", "45 to 54", "55 to 64", "65 to 74", "75-plus")
+
+p <- basic_cex %>%
+  select(agegroup, ageref, vars) %>%
+  gather(variable, value, -agegroup, -ageref) %>%
+  mutate(variable=factor(variable, 
+                         levels=vars,
+                         labels=vlabs)) %>%
+  ggplot(aes(ageref, value, colour=variable)) +
+  geom_line(size=1.1) +
+  scale_color_manual(values=c("blue", "darkgreen", "red")) +
+  scale_y_continuous(name="Amount in dollars", 
+                     breaks=seq(0, 200e3, 10e3), 
+                     labels=scales::dollar, limits = c(0, NA)) +
+  scale_x_continuous(name="Age of householder", breaks=brks, labels=xlabs) +
+  ggtitle("Income and expenditures by age of householder", 
+          subtitle="Consumer Expenditure Survey, 2017") +
+  guides(colour=guide_legend(title=NULL)) +
+  theme_bw()
+p
+ggsave(plot=p, filename="./results/taxes/salestax/sut_incexp.png", width=8, height=6, units="in")
+
+```
+
+
+### Taxable sales tax recalculated with CEX and Weldon Cooper population projections
+```{r sutcalc_prep, echo=FALSE, message=FALSE, warning=FALSE}
+# projected number of households and projected population by hh age group by state by projection year
+# (7 x 52 x 4) --> 1,456 obs, incl DC and US
+# Weldon-Cooper-derived household projections that are linkable to CEX
+hhproj <- readRDS("./data/ACS/acs_hhpop_by_hgroup.rds")
+# glimpse(hhproj)
+# ht(hhproj)
+# count(hhproj, year)
+# count(hhproj, stabbr)
+# count(hhproj, cexgroup, hgroup)
+
+# create a long version of cex-taxable-sales-with all of the different tax values
+cex_long <- basic_cex %>%
+  select(agegroup, contains("taxexp_avg")) %>% # taxable expenditures
+  gather(sutbase, taxexp, -agegroup) %>%
+  mutate(sutbase=str_remove(sutbase, "_taxexp_avg"))
+# ht(cex_long)
+# count(cex_long, sutbase)
+
+# combine with household projections to get taxable expenditures -- 2 files:
+#  US totals by age group, for ALL tax rules, to isolate role of demographics
+#  state totals by age group
+taxexp_age_usdemog <- hhproj %>%
+  filter(stabbr=="US", year %in% c(2020, 2040)) %>%
+  select(year, agegroup=cexgroup, hhnum) %>%
+  left_join(cex_long) %>%
+  mutate(taxexp_m=taxexp * hhnum / 1e6)
+# glimpse(taxexp_age_usdemog)
+
+taxexp_age_statedemog <- hhproj %>%
+  filter(stabbr %in% globals$case_study_states, year %in% c(2020, 2040)) %>%
+  select(stabbr, year, agegroup=cexgroup, hhnum) %>%
+  left_join(cex_long %>% rename(stabbr=sutbase)) %>%
+  mutate(taxexp_m=taxexp * hhnum / 1e6)
+# save for later
+write_csv(taxexp_age_statedemog, "./results/taxes/salestax/taxexp_age_statedemog.csv")
+
+```
+
+
+### Per-capita taxable expenditures with US demographics and states' bases
+```{r sutpercap_usdemog, echo=FALSE, message=FALSE, warning=FALSE}
+# per-capita taxable expenditures
+cex_src <- "Author's analysis of Consumer Expenditure Survey data on purchases, Weldon Cooper population projections (Updated December 2018), and state tax laws."
+capt <- "Per-capita taxable sales, 2017 dollars, based on projected U.S. demographics, with state sales tax bases"
+
+taxexp_age_usdemog %>%
+  filter(sutbase %in% globals$case_study_states) %>%
+  mutate(stname=getstname(sutbase)) %>%
+  group_by(sutbase, stname, year) %>%
+  summarise(taxexp=sum(taxexp_m) * 1e6 / sum(hhnum)) %>%
+  spread(year, taxexp) %>%
+  mutate(pch=`2040` / `2020` * 100 - 100) %>%
+  kable(caption=capt,
+        digits=c(rep(0, 4), 1), format.args=list(big.mark=",")) %>%
+  kable_styling(full_width = FALSE) %>%
+  footnote(general_title="Source:", general = str_wrap(cex_src))
+
+```
+
+
+### Per-capita taxable expenditures with states' demographics and states' bases
+```{r sutpercap_stdemog, echo=FALSE, message=FALSE, warning=FALSE}
+# per-capita taxable expenditures
+cex_src <- "Author's analysis of Consumer Expenditure Survey data on purchases, Weldon Cooper population projections (Updated December 2018), and state tax laws."
+capt <- "Per-capita taxable sales, 2017 dollars, based on projected state demographics, with state sales tax bases"
+
+taxexp_age_statedemog %>%
+  filter(stabbr %in% globals$case_study_states) %>%
+  mutate(stname=getstname(stabbr)) %>%
+  group_by(stabbr, stname, year) %>%
+  summarise(taxexp=sum(taxexp_m) * 1e6 / sum(hhnum)) %>%
+  spread(year, taxexp) %>%
+  mutate(pch=`2040` / `2020` * 100 - 100) %>%
+  kable(caption=capt,
+        digits=c(rep(0, 4), 1), format.args=list(big.mark=",")) %>%
+  kable_styling(full_width = FALSE) %>%
+  footnote(general_title="Source:", general = str_wrap(cex_src))
+
+```
+
+
+### State tables with state laws and demographics
+```{r sut_stdemog_setup, echo=FALSE, message=FALSE, warning=FALSE}
+# per-capita taxable expenditures -- USE THIS ONE ----
+cex_src <- "Author's analysis of Consumer Expenditure Survey data on purchases, Weldon Cooper population projections (Updated December 2018), and state tax laws."
+capt <- "Per-capita taxable sales, 2017 dollars, based on projected state demographics, with state sales tax bases"
+
+addtots_sut <- function(df) {
+  lastrow <- df %>%
+    group_by(stabbr, year) %>%
+    summarise_at(vars(hhnum, taxexp_m), ~sum(.)) %>%
+    mutate(hgroup="total")
+  bind_rows(df, lastrow)
+}
+
+# count(taxexp_age_statedemog, agegroup)
+# glimpse(taxexp_age_statedemog)
+
+eld_noneld_st_sut <- taxexp_age_statedemog %>%
+  filter(stabbr %in% globals$case_study_states) %>%
+  mutate(hgroup=ifelse(agegroup %in% c("a65to74", "a75p"), "65plus", "< 65")) %>%
+  group_by(stabbr, year, hgroup) %>%
+  summarise_at(vars(hhnum, taxexp_m), ~sum(.)) %>%
+  group_by(stabbr, year) %>%
+  do(addtots_sut(.))
+
+enone_tabs_sut <- eld_noneld_st_sut %>%
+  group_by(stabbr) %>%
+  filter(year %in% c(2020, 2040)) %>%
+  mutate(taxexp_phh=taxexp_m * 1e6 / hhnum,
+         hhnumk=hhnum / 1000) %>%
+  select(stabbr, year, hgroup, hhnumk, taxexp_phh, taxexp_m) %>%
+  gather(variable, value, hhnumk, taxexp_phh, taxexp_m) %>%
+  unite(vyear, variable, year) %>%
+  spread(vyear, value) %>%
+  mutate(hhnumk_pch=hhnumk_2040 / hhnumk_2020 * 100 - 100,
+         taxexp_phh_pch=taxexp_phh_2040 / taxexp_phh_2020 * 100 - 100,
+         taxexp_m_pch=taxexp_m_2040 / taxexp_m_2020 * 100 - 100) %>%
+  select(stabbr, hgroup, contains("hhnumk"), contains("taxexp_phh"), contains("taxexp_m")) %>%
+  ungroup
+
+
+# write csv file
+enone_tabs_sut %>% 
+    mutate(stname=getstname(stabbr)) %>%
+    select(stabbr, stname, everything()) %>%
+    write_csv(paste0("./results/taxes/salestax/", "css_sutchanges.csv"))
+
+suttab <- function(st){
+  enone_tabs_sut %>%
+    filter(stabbr==st) %>%
+    mutate(stname=getstname(stabbr)) %>%
+    select(stabbr, stname, everything()) %>%
+    kable(caption="Changing age composition and state taxable sales",
+          digits=c(rep(0, 5), 1, 0, 0, 1, 0, 0, 1),
+          format.args = list(big.mark=",")) %>%
+    kable_styling(full_width = TRUE) %>%
+    footnote(general_title="Source:", general = cex_src)
+}
+
+```
+
+```{r sut_stdemog_tables, echo=FALSE, message=FALSE, warning=FALSE}
+suttab("CA")
+suttab("NY")
+suttab("OH")
+suttab("TN")
+suttab("TX")
+
+suttab("NH")
+```
+
+### Cross-state taxable sales tables
+
+```{r sutcomp, echo=FALSE, message=FALSE, warning=FALSE}
+enone_tabs_sut %>% 
+    filter(stabbr %in% globals$case_study_states, hgroup=="total") %>%
+    mutate(stname=getstname(stabbr)) %>%
+    select(stabbr, stname, contains("pch")) %>%
+      kable(caption="Percentage change from 2020 to 2040 in projected # households, per-household taxable sales, and total taxable sales, 2017 dollars",
+          digits=c(0, 0, 1, 1, 1),
+          format.args = list(big.mark=",")) %>%
+    kable_styling(full_width = FALSE) %>%
+    footnote(general_title="Source:", general = cex_src)
+
+```
+
+
+
+## Property tax
+
+### U.S. plot of home values and property tax by age
+```{r rpt, echo=FALSE, message=FALSE, warning=FALSE}
+usptax <- rptaxval %>%
+  gather(variable, value, rvalp, rptax) %>%
+  group_by(variable) %>%
+  mutate(smooth=loess(value ~ agep)$fitted,
+         ismooth=smooth / smooth[agep==50] * 100) %>%
+  ungroup
+
+#.. Now make the graph ----
+dnote1 <- "Author's analysis of American Community Survey PUMS data, 2013-2017"
+dnote2 <- "Values are weighted means by age, smoothed with local regression"
+# dnote2 <- "(https://population.un.org/wpp/DVD/Files/1_Indicators%20(Standard)/CSV_FILES/WPP2017_PopulationBySingleAgeSex.csv)"
+# gnote1 <- "Notes: Growth rate is 3-year centered moving average to avoid focus on spurious movements."
+# gnote2 <- "First projection year is 2016, marked by dotted vertical line."
+capt <- paste0("Source: ", dnote1, "\n", dnote2)
+
+gtitle <- "Home values and property taxes in the United States, indexed to age=50"
+
+p <- usptax %>%
+  mutate(variable=factor(variable, levels=c("rvalp", "rptax"), labels=c("Home value", "Property tax"))) %>%
+  ggplot(aes(agep, ismooth, colour=variable)) +
+  geom_line(size=1.3) +
+  scale_colour_manual(values=c("blue", "darkgreen")) +
+  scale_x_continuous(name="Householder age", breaks=seq(0, 100, 5)) +
+  scale_y_continuous(name="Indexed value (100 at age 50)", breaks=seq(0, 200,5)) +
+  geom_hline(yintercept = 100) +
+  ggtitle(gtitle) +
+  labs(caption=capt) +
+  guides(colour=guide_legend(title=NULL)) +
+  theme_bw() +
+  theme(plot.caption = element_text(hjust=0, size=9)) +
+  theme(axis.text.x=element_text(angle=0,hjust=.9,vjust=0.9))
+p
+ggsave(plot=p, filename="./results/taxes/proptax/hval_ptax.png", width=8, height=6, units="in")
+
+```
+### Average property tax by age, case study states
+```{r rptage, echo=FALSE, message=FALSE, warning=FALSE}
+clrs <- c('#a6cee3','#1f78b4','#b2df8a','#33a02c','#fb9a99','#e31a1c')
+capt1 <- "Source: Author's analysis of American Community Survey, 2013-2017 5-Year PUMS"
+capt2 <- "Note: Property taxes are smoothed using local regression"
+capt <- paste0(capt1, "\n", capt2)
+title <- "Average homeowner property tax by age in case study states"
+p <- rptaxval %>%
+  ungroup %>%
+  filter(stabbr %in% globals$case_study_states, agep %in% 20:90) %>%
+  mutate(stabbr=factor(stabbr, levels=globals$case_study_states, labels=getstname(globals$case_study_states))) %>%
+  ggplot(aes(agep, rptax, colour=stabbr)) +
+  geom_smooth(size=rel(1.3), se=FALSE) + 
+  scale_x_continuous(name="Householder age", breaks=seq(0, 100, 5)) +
+  scale_y_continuous(name="Property tax (self-reported)", 
+                     breaks=seq(0, 10e3, 500), limits=c(0, NA), labels = scales::dollar) +
+  theme_bw() +
+  scale_colour_manual(values=clrs) +
+  guides(colour=guide_legend(title=NULL)) +
+  ggtitle(title, subtitle="2017 dollars") +
+  labs(caption=capt) +
+  theme(plot.title = element_text(size=rel(1.3))) +
+  theme(plot.subtitle = element_text(size=rel(1))) +
+  theme(axis.title = element_text(size=rel(1))) +
+  theme(axis.text = element_text(size=rel(1))) +
+  theme(plot.caption = element_text(hjust=0, size=rel(.8)))
+p
+# mult <- 2
+# w <- 6.5 * mult; h <- 5 * mult
+# w <- 8; h <- 11 / 2
+ggsave(plot=p, filename="./results/taxes/proptax/proptax_byage_css_xus.png", width=8, height=6, units="in")
+
+
+```
+
+
+
+
+# State tables and graphs
+
+```{r data_prep, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+
+```
+
+
+## Older-population scatterplot of 50 states
+```{r scatter50, echo=FALSE, message=FALSE, warning=FALSE, fig.height=6.25, fig.width=10}
+popshares <- wpop %>% 
+  filter(sex=="Total", popgroup!="poptot", year %in% c(2020, 2040), stabbr!="DC") %>%
+  group_by(stabbr, year) %>%
+  mutate(poptot=sum(value),
+         share=value / poptot) %>%
+  filter(popgroup %in% globals$wc_older) %>%
+  summarise(share65p=sum(share)) %>%
+  mutate(year=paste0("share65p", year)) %>%
+  spread(year, share65p) %>% 
+  mutate(change2040=share65p2040 - share65p2020)
+# ht(popshares)
+usvals <- popshares %>% filter(stabbr=="US")
+
+
+capt <- "\nSource: Author's analysis of projections from University of Virginia, Weldon Cooper Center for Public Service, Updated December 2018, www.coopercenter.org/demographics"
+p <- popshares %>% 
+  filter(!stabbr %in% c("US")) %>%
+  mutate(stype=ifelse(stabbr %in% globals$case_study_states, "Case study\nstates", "Other states"),
+         lsize=ifelse(stype=="Other", 3, 4)) %>%
+  ggplot(aes(x=share65p2020, y=change2040, label=stabbr)) + 
+  theme_bw() +
+  geom_text_repel(aes(colour=stype, size=stype), fontface = "bold", point.padding = NA) +
+  scale_x_continuous(name="Projected percent age 65+ in 2020", labels = scales::percent_format(accuracy=1),
+                     breaks=seq(0, .3, .01)) +
+  scale_y_continuous(name="Change in percent from 2020 to 2040",
+                     labels = scales::percent_format(accuracy=1), 
+                     breaks=seq(0, .3, .01),
+                     limits=c(0, NA)) +
+  scale_colour_manual(values=c("darkred", "blue", "#636363")) +
+  scale_size_manual(values=c(3.5, 3.5, 3)) +
+  geom_hline(yintercept=usvals$change2040) +
+  geom_vline(xintercept=usvals$share65p2020) +
+  geom_hline(yintercept=0, linetype="dashed", colour="darkblue") +
+  ggtitle(label="Projected percent of population age 65 or older in 2020, and change to 2040",
+          subtitle="Horizontal and vertical lines show United States average") +
+  labs(caption=str_wrap(capt, 90)) +
+  theme(plot.title = element_text(size=rel(1.4))) +
+  theme(plot.subtitle = element_text(size=rel(1))) +
+  theme(axis.title = element_text(size=rel(1))) +
+  theme(axis.text = element_text(size=rel(1))) +
+  theme(plot.caption = element_text(hjust=0, size=8)) +
+  guides(colour=guide_legend(title=NULL), size=guide_legend(title=NULL))
+#p
+
+p2 <- p + annotate("text", label="Younger and aging more slowly", colour="darkgreen", 
+                   x=min(popshares$share65p2020) + .02, y=0.005) +
+  annotate("text", label="Older and aging more quickly", colour="darkgreen", 
+           x=usvals$share65p2020 + .03, y=max(popshares$change2040) - .01)
+p2
+
+#ggsave(p, file=paste0("./results/age65p_1030_scatter.png"), width=10, height=6.25, units="in")
+ggsave(plot=p2, file=paste0("./results/states/age65p_2040_scatter_repel2.png"), width=10, height=6.25, units="in")
+
+```
+
+## Older population map
+
+```{r map_setup, echo=FALSE, message=FALSE, warning=FALSE}
+#.. Libraries ----
+library(maps)
+# https://cran.r-project.org/web/packages/usmap/vignettes/mapping.html
+library(usmap)
+library(gridExtra)
+
+#.. Functions ----
+theme_map <- function(base_size=9, base_family="") {
+  # see:
+  # https://socviz.co/maps.html
+  # https://github.com/kjhealy/socviz
+  require(grid)
+  theme_bw(base_size=base_size, base_family=base_family) %+replace%
+    theme(axis.line=element_blank(),
+          axis.text=element_blank(),
+          axis.ticks=element_blank(),
+          axis.title=element_blank(),
+          panel.background=element_blank(),
+          panel.border=element_blank(),
+          panel.grid=element_blank(),
+          panel.spacing=unit(0, "lines"),
+          plot.background=element_blank(),
+          legend.justification = c(0,0),
+          legend.position = c(0,0)
+    )
+}
+
+get_mdata <- function(data){
+  # df must have a column named stabbr
+  mdata <- left_join(usmap::us_map() %>% arrange(full, piece, order), 
+                     data %>% rename(abbr=stabbr),
+                     by="abbr")
+  return(mdata)
+}
+
+get_stateplot <- function(data, fillvar){
+  # data is a data frame
+  # fillvar is a character value with the name of the variable that will determine the fill color
+  mdata <- get_mdata(data)
+  p <- ggplot(data = mdata, aes(x = long, y = lat, group = group)) +
+    geom_polygon(aes(fill=mdata[[fillvar]]), color = "gray90", size = 0.1, na.rm=TRUE) +
+    coord_equal() + 
+    theme_map() +
+    theme(legend.position = "right")
+  return(p)
+}
+
+```
+
+
+```{r age65p_map, echo=FALSE, message=FALSE, warning=FALSE}
+#.. Data ----
+agepop <- wpop %>%
+  filter(stabbr %in% c("DC", state.abb), 
+         sex=="Total", year %in% c(2020, 2040), 
+         popgroup %in% c(globals$wc_older, "poptot")) %>%
+  mutate(older=ifelse(popgroup %in% globals$wc_older, "older", "total")) %>%
+  group_by(stabbr, year, older) %>%
+  summarise(pop=sum(value)) %>%
+  ungroup %>%
+  spread(older, pop) %>%
+  mutate(pctold=older / total * 100) %>%
+  select(stabbr, year, pctold)
+
+# glimpse(agepop)
+# agepop %>%
+#   group_by(year) %>%
+#   do(qtiledf(.$pctold, probs=0:10/10))
+
+#.. Draw map ----
+# group the age data
+# INCLUDING DC IS CRITICAL IF IT IS IN THE MAPDATA (else leave it out of map data) -- else we will get an NA facet
+cuts <- c(0, 14, 17, 19, 21, 24, 30)
+cuts <- c(0, 14, 16, 18, 20, 24, 30)
+agepop$agroup <- cut(agepop$pctold, breaks=cuts)
+# count(agepop, year, agroup) %>% spread(year, n)
+
+cutlabs <- c("<= 14%", levels(agepop$agroup)[2:5], "> 24%")
+# cbind(levels(agepop$agroup), cutlabs)
+agepop <- agepop %>%
+  mutate(agroup=factor(agroup, labels=cutlabs))
+# count(agepop, agroup)
+
+capt <- str_wrap(paste0("Source: Author's analysis of projections from ", wc_src), 90)
+
+colors <- c('#31a354','#f0f9e8','#ffffb2','#fee391','#feb24c','#f03b20')
+p <- get_stateplot(agepop, "agroup") + 
+  scale_fill_manual(values=colors, drop=FALSE)+
+  theme(legend.position = "right") +
+  guides(fill=guide_legend(title="% age 65+")) +
+  geom_polygon(color = "black", fill=NA) +
+  facet_wrap(~year, ncol=1) +
+  ggtitle("Percent of population aged 65+") +
+  theme(plot.title = element_text(size = 12, face = "bold"),
+        strip.background = element_rect(colour="lightgrey", fill=NA),
+        strip.text = element_text(size = 10, face="bold")) +
+  labs(caption=capt) +
+  theme(plot.caption = element_text(hjust=0, size=8))
+p
+ggsave("./results/states/pctold_map.png", p, width=8, height=6.5, units="in")
+
+```
+
+
+
+
+```{r mdnage_map, echo=FALSE, message=FALSE, warning=FALSE}
+#.. Data ----
+mage <- wmdnage %>%
+  filter(stabbr %in% c("DC", state.abb), 
+         year %in% c(2020, 2040)) %>%
+  select(stabbr, year, mdnage)
+
+# glimpse(mage)
+mage %>%
+  group_by(year) %>%
+  do(qtiledf(.$mdnage, probs=0:10/10))
+
+#.. Draw map ----
+# group the age data
+# INCLUDING DC IS CRITICAL IF IT IS IN THE MAPDATA (else leave it out of map data) -- else we will get an NA facet
+cuts <- c(0, 37, 38, 39, 40, 41, 50)
+mage$agroup <- cut(mage$mdnage, breaks=cuts)
+# count(agepop, year, agroup) %>% spread(year, n)
+
+cutlabs <- c("<= 37", levels(mage$agroup)[2:5], "> 41")
+# cbind(levels(agepop$agroup), cutlabs)
+mage <- mage %>%
+  mutate(agroup=factor(agroup, labels=cutlabs))
+# count(agepop, agroup)
+
+capt <- str_wrap(paste0("Source: Author's analysis of projections from ", wc_src), 90)
+
+colors <- c('#31a354','#f0f9e8','#ffffb2','#fee391','#feb24c','#f03b20')
+p <- get_stateplot(mage, "agroup") + 
+  scale_fill_manual(values=colors, drop=FALSE) +
+  theme(legend.position = "right") +
+  guides(fill=guide_legend(title="Median age")) +
+  geom_polygon(color = "black", fill=NA) +
+  facet_wrap(~year, ncol=1) +
+  ggtitle("Median age") +
+  theme(plot.title = element_text(size = 12, face = "bold"),
+        strip.background = element_rect(colour="lightgrey", fill=NA),
+        strip.text = element_text(size = 10, face="bold")) +
+  labs(caption=capt) +
+  theme(plot.caption = element_text(hjust=0, size=8))
+p
+ggsave("./results/states/mdnage_map.png", p, width=8, height=6.5, units="in")
+
+```
+
+
+## Cross-state information
+```{r css_data, echo=FALSE, message=FALSE, warning=FALSE}
+wcnote <- "Author's analysis of projections from University of Virginia,\nWeldon Cooper Center for Public Service, Updated December 2018, www.coopercenter.org/demographics"
+
+storder <- c("US", globals$case_study_states) # order in which we want states listed!
+stnames <- getstname(storder)
+
+css_popgroups <- wpop %>% 
+  filter(sex=="Total", popgroup!="poptot") %>%
+  mutate(grp=case_when(popgroup %in% globals$wc_young ~ "young",
+                       popgroup %in% globals$wc_workage ~ "workage",
+                       popgroup %in% globals$wc_older ~ "older",
+                       TRUE ~ "other"),
+         grpf=factor(grp, levels=agelevs, labels=agelabs)) %>%
+  group_by(stabbr, year, grp, grpf) %>%
+  summarise(pop=sum(value)) %>% 
+  ungroup %>%
+  filter(stabbr %in% storder, grp!="other") %>%
+  mutate(stname=factor(stabbr, levels=storder, labels=stnames))
+
+```
+
+
+### Percent change in population by age group
+```{r css_popgroup_pch, echo=FALSE, message=FALSE, warning=FALSE}
+# Projected young, working age, and elderly pop changes in case study states
+
+poppch <- css_popgroups %>%
+  spread(year, pop) %>%
+  mutate(pch2040=`2040` / `2020` * 100 - 100)
+
+poppch %>%
+  arrange(grp, stname) %>%
+  select(stname, grpf, pch2040) %>%
+  spread(grpf, pch2040) %>%
+  mutate(old_minus_workage=.[[4]] - .[[3]]) %>%
+  kable(caption="Projected population growth rates by age group, 2020 to 2040", digits=1) %>%
+  kable_styling(full_width = FALSE) %>%
+  footnote(general_title="Source:", general = wcnote)
+
+poppch %>%
+  arrange(grp, stname) %>%
+  select(stname, grpf, pch2040) %>%
+  spread(grpf, pch2040) %>%
+  mutate(old_minus_workage=.[[4]] - .[[3]]) %>%
+  write_csv("./results/states/css_popgrowth.csv")
+
+
+# side-by-side bar graphs
+# p <- poppch %>%
+#   ggplot(aes(fill=grpf, y=pch2040, x=stname)) + 
+#   geom_bar(position="dodge", stat="identity") +
+#   scale_y_continuous(name="Percent change (%)",
+#                      breaks=seq(-20, 100, 10)) +
+#   scale_x_discrete(name=NULL) +
+#   scale_fill_manual(values=c("red", "darkgreen", "blue")) +
+#   guides(fill=guide_legend(title=NULL)) +
+#   ggtitle("Percent change in population by age group from 2020 to 2040") +
+#   labs(caption=wcnote) +
+#   theme_bw() +
+#   theme(plot.caption = element_text(hjust=0, size=9))
+# p
+
+# Here's how to do a stacked bar chart, which does not work well here
+# poppch %>% 
+#   arrange(desc(grpf)) %>%
+#   ggplot(aes(fill=grpf, y=`2040`, x=stname)) + 
+#   geom_bar(stat="identity", position="fill")
+
+```
+
+
+### Old age dependency ratio
+```{r css_depratio, echo=FALSE, message=FALSE, warning=FALSE}
+cssoadr <- css_popgroups %>%
+  select(stabbr, stname, year, grp, pop) %>%
+  spread(grp, pop) %>%
+  mutate(oadr=older / workage * 100) %>%
+  select(stabbr, stname, year, oadr) %>%
+  spread(year, oadr) %>%
+  mutate(chg2040=`2040` - `2020`) %>%
+  arrange(stname)
+
+cssoadr %>% write_csv("./results/states/css_oadepratio.csv")
+
+cssoadr %>%
+  kable(caption="Old age dependency ratio", digits=1) %>%
+  kable_styling(full_width = FALSE) %>%
+  footnote(general_title="Source:", general = wcnote)
+
+```
+
+
+# Put all results together, in context of state-local finances
+Here we include results in context of state finances.
+## Information for individual case-study states
+```{r cssresults, echo=FALSE, message=FALSE, warning=FALSE}
+# get needed data
+strev <- read_csv("./results/taxes/css_revshares.csv") %>%
+  filter(level==2)
+
+pitpch <- read_csv("./results/taxes/pit/css_pitchanges.csv") %>%
+  filter(pgroup=="total") %>%
+  select(stabbr, contains("pch")) # important results
+# pitpch
+# we'll want pgroup total, wcpopkpch, wcpit_pc_pch, wcpit_level_pch
+
+gstpch <- read_csv("./results/taxes/salestax/taxexp_age_statedemog.csv") %>%
+  group_by(year, stabbr) %>%
+  summarise_at(vars(hhnum, taxexp_m), ~sum(.)) %>%
+  mutate(taxexp_avg=taxexp_m * 1e6 / hhnum) %>%
+  gather(vname, value, -year, -stabbr) %>%
+  spread(year, value) %>%
+  mutate(pch=`2040` / `2020` * 100 - 100) %>%
+  select(stabbr, vname, pch) %>%
+  spread(vname, pch)
+# gstpch
+
+# business_share <- .33
+# the following is from my analysis of the COST 2018 report
+bsdf <- read_csv("stabbr, bpct
+CA,	39.3
+NH, 0
+NY,	42.7
+OH,	42.0
+TN,	42.6
+TX,	53.0")
+bsdf <- bsdf %>%
+  mutate(business_share=bpct / 100,
+         business_share=0) # SET BUSINESS SHARE TO 0 - ignore per Bill's comment
+# bsdf
+
+tabdat <- strev %>%
+  filter(stabbr!="US") %>%
+  select(stabbr, stname, osr, iit, gst) %>%
+  mutate_at(vars(osr, iit, gst), ~. / 1e3) %>% # put in $ millions
+  left_join(pitpch) %>%
+  left_join(gstpch) %>%
+  left_join(bsdf) %>%
+  mutate_if(is.numeric, ~naz(.)) %>%
+  mutate(wcpit_pc_pch=ifelse(stabbr=="TN", 0, wcpit_pc_pch)) %>% # PER BILL's COMMENT -- DJB ----
+  mutate(iitval_comp=iit * wcpit_pc_pch / 100, # $ impact on iit
+         gstval_comp=gst * taxexp_avg / 100 * (1 - business_share), # $ impact on gst, taking account of bus share
+         iitgstval_comp=iitval_comp + gstval_comp, # combined iit gst $ impact
+         iitgstval_comp_pct=iitgstval_comp / osr * 100) # combined impact pct osr
+# tabdat
+
+# composition table
+# tabdat %>%
+
+```
+
+
+```{r cssresults_tab, echo=FALSE, message=FALSE, warning=FALSE}
+tabdat %>%
+  select(stabbr, stname,
+         pit_avgchange=wcpit_pc_pch,
+         gst_avgchange=taxexp_avg,
+         osr_pctimpact_pit_and_sales=iitgstval_comp_pct) %>%
+  kable(caption="Potential revenue impact as percent of own-source revenue",
+        digits=c(rep(0, 2), rep(1, 3)),
+        format.args=list(big.mark=",")) %>%
+  kable_styling(full_width = FALSE) %>%
+  footnote(general_title="Source:", 
+           general = "Author's analysis of multiple data sources. See text for details.")
+```
+
+
+### California
+```{r CA, echo=FALSE, message=FALSE, warning=FALSE}
+
+```
+
+
+### New Hampshire
+```{r NH, echo=FALSE, message=FALSE, warning=FALSE}
+
+```
+
+
+### New York
+```{r NY, echo=FALSE, message=FALSE, warning=FALSE}
+
+```
+
+
+### Ohio
+```{r OH, echo=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+
+
+```
+
+
+### Tennessee
+```{r TN, echo=FALSE, message=FALSE, warning=FALSE}
+
+
+```
+
+
+### Texas
+```{r TX, echo=FALSE, message=FALSE, warning=FALSE}
+
+```
+
+
+# Health expenditures bar chart
+```{r hx_bar, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+hbar <- read_csv(
+"age_group, hxpc
+0-18, 3552
+19-44, 4458
+45-64, 9513
+65-84, 16872
+85+, 32411")
+mabar
+
+capt <- "Source: Centers for Medicare and Medicaid Services, National Health Expenditures by Age and Gender, August 2016"
+p <- hbar %>%
+  ggplot(aes(x=age_group, y=hxpc)) +
+  geom_col(fill="blue") +
+  scale_x_discrete(name="Age group") +
+  scale_y_continuous(name="Expenditures per person", 
+                     breaks=seq(0, 40e3, 5e3),
+                     labels=scales::dollar_format(accuracy=1)) +
+  ggtitle("Annual health care expenditures per capita") +
+  theme_bw() +
+  labs(caption=str_wrap(capt, 90)) +
+  theme(plot.caption = element_text(hjust=0, size=9))
+p
+
+ggsave("./results/general/hxpc.png", plot=p, width=8, height=6.5, units="in")
+
+```
+
+## Medicaid expenditures bar chart
+```{r ma_bar, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+# Aged	Individuals with Disabilities	Adults	Children
+# $13,063 	$16,859 	$3,278 	$2,577 
+# 
+# All Full or Partial Benefit Enrollees
+# $5,736 
+
+
+mabar <- read_csv(
+"elig_group, maxpe
+All enrollees, 5736
+Aged, 13063
+Individuals with Disabilities, 16859
+Adults, 3278
+Children, 2577")
+mabar
+
+capt <- "Source: The Kaiser Family Foundation, https://www.kff.org/medicaid/state-indicator/medicaid-spending-per-enrollee"
+p <- mabar %>%
+  mutate(elig_group=factor(elig_group, levels=mabar$elig_group)) %>%
+  ggplot(aes(x=elig_group, y=maxpe)) +
+  geom_col(fill="blue") +
+  scale_x_discrete(name="Eligiblility group") +
+  scale_y_continuous(name="Expenditures per enrollee", 
+                     breaks=seq(0, 40e3, 5e3),
+                     labels=scales::dollar_format(accuracy=1)) +
+  ggtitle("Medicaid Spending per Enrollee (Full or Partial Benefit), Federal Fiscal Year 2014") +
+  theme_bw() +
+  labs(caption=str_wrap(capt, 90)) +
+  theme(plot.caption = element_text(hjust=0, size=9))
+p
+
+ggsave("./results/general/maxpe.png", plot=p, width=8, height=6.5, units="in")
+
+```
+
+
+

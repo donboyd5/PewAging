@@ -17,7 +17,7 @@ library("vctrs")
 library("precis")
 library("Hmisc")
 
-library("tibbletime") # https://business-science.github.io/tibbletime/
+# library("tibbletime") # https://business-science.github.io/tibbletime/
 
 library("grDevices")
 library("ggrepel")
@@ -29,9 +29,15 @@ library("janitor")
 
 library("zoo") # for rollapply
 
-library("btools") # library that I created (install from github)
+library("fredr")
+library("purrr")
+
+# install Boyd libraries from github as needed
+# devtools::install_github("donboyd5/btools")
+# devtools::install_github("donboyd5/bdata")
+# devtools::install_github("donboyd5/BEAData")
+library("btools")
 library("bdata")
 library("BEAData")
 
-library("fredr")
-library("purrr")
+

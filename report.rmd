@@ -56,14 +56,15 @@ wc_src <- "Weldon Cooper Center for Public Service, University of Virginia, Upda
 
 ```{r getdata, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
 # previously created or quickly created data files
-wpop <- readRDS("./data/popproj/wc_popproj.rds") # Weldon Cooper pop projections
-wmdnage <- readRDS("./data/popproj/wc_mdnage.rds") # Weldon Cooper pop projections
+wpop <- readRDS("./data/popproj/wc_popproj.rds") # Weldon Cooper pop projections (prepare_weldon_cooper_pop_projs.r)
+wmdnage <- readRDS("./data/popproj/wc_mdnage.rds") # Weldon Cooper pop projections (prepare_weldon_cooper_2018_pop_projs.r)
 
-cps_person <- readRDS("./data/cps_person.rds") # CPS person data for 2017-2018
+cps_person <- readRDS("./data/cps_person.rds") # CPS person data for 2017-2018 (prepare_cps_person_file.r)
 
-uspp_un <- readRDS("./data_raw/UnitedNations/un_popproj.rds")
+uspp_un <- readRDS("./data_raw/UnitedNations/un_popproj.rds") # UN population projections (prepare_un_popproj.r)
 
-hhp <- readRDS("./data/ACS/acs_hhp20175year.rds") # household-person file, ACS
+hhp <- readRDS("./data/ACS/acs_hhp20175year.rds") # household-person file, ACS (prepare_acs_proptax.r)
+# [CAUTION: underlying ACS source data files are large and not included, will be provided upon request]
 
 ```
 
@@ -187,6 +188,7 @@ p2
 ggsave(plot=p2, filename="./results/general/fertrate.png", width=8, height=6, units="in")
 
 ```
+
 
 ```{r fertrate_ssa, echo=FALSE, message=FALSE, warning=FALSE}
 tfr <- read_csv("./data_raw/SSA/tfr_ssa.csv", skip=1)
@@ -660,7 +662,7 @@ soidat <- soiall %>%
 
 
 # get a table of changes that we could look at for US or for a state
-vorder <- c("agi", "wages", "retinc", "txblpension", "iradist", "txblsocsec", "non_wage_cg_retagi", "netcgll")
+vorder <- c("agi", "wages", "retinc", "txblpension", "iradist", "txblsocsec", "non_wage_cg_retagi", "netcgll") # variable order - for nice sorting
 soichanges <- soidat %>% 
   filter(year %in% c(2009, 2016), vname %in% vorder) %>%
   mutate(stabbr=factor(stabbr, levels=c("US", globals$case_study_states)), # for ordering
@@ -715,7 +717,6 @@ state_soi_changes("TN")
 state_soi_changes("TX")
 
 ```
-
 
 
 ### Money income, and state income tax, by age for United States and case-study states (CPS data)
@@ -885,13 +886,15 @@ addtots <- function(df) {
     summarise_at(vars(cpspop, cpspit_level, wcpop, wcpit_level), ~sum(.)) %>%
     mutate(pgroup="total")
   bind_rows(df, lastrow)
-  }
+}
+
 eld_noneld_st <- pit_df %>%
   mutate(pgroup=ifelse(popgroup %in% globals$wc_older, "65plus", "< 65")) %>%
   group_by(stabbr, year, pgroup) %>%
   summarise_at(vars(cpspop, cpspit_level, wcpop, wcpit_level), ~sum(.)) %>%
   group_by(stabbr, year) %>%
   do(addtots(.))
+
 enone_tabs <- eld_noneld_st %>%
   group_by(stabbr) %>%
   filter(year %in% c(2020, 2040)) %>%
@@ -933,10 +936,15 @@ pittab <- function(st){
 
 ### Case-study state tables -- State-local income tax (CPS data) recalculated using projected population (Weldon Cooper)
 ```{r pittabs_css, echo=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+# the tables seem to get ahead of each other if this is run all at once so put a pause in
 pittab("CA")
+Sys.sleep(1)
 pittab("NH")
+Sys.sleep(1)
 pittab("NY")
+Sys.sleep(1)
 pittab("OH")
+Sys.sleep(1)
 pittab("TN")
 
 ```
@@ -995,15 +1003,31 @@ write_csv(pit_changes, "./results/taxes/pit/pit_changes.csv")
 
 
 ```{r pit_datacheck, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE, eval=FALSE}
-#.. quick check of implied pit in the cps vs iit in census -- years don't match quite correctly of course
-sgcomp <- pit_shares %>%
+# This is a comparison of PIT calculated from CPS to PIT as reported in Census data -- years don't match quite correctly of course
+# It is just a data check - it is not in the report
+
+# It shows that the amount of PIT calculated in the CPS by Census is quite a bit larger than the amount reported by Census
+# But the correlation across states is very high, and so the distribution of these two different measures across states is quite similar
+
+pit_cps <- usitax %>%
+  filter(variable=="rtax") %>%
   group_by(stabbr) %>%
+  summarise(taxcps=sum(weight * value))
+
+# look at the comparison two ways because CPS tax sometimes, but not always, includes some local income tax
+# 1) what if the cps data only reflected state income taxes
+sgcomp <- pit_cps %>%
+  group_by(stabbr) %>%
+  # put both measures in # millions
   summarise(taxcps=sum(taxcps) / 1e6) %>%
   left_join(slgfin %>% filter(level==2, aggvar=="iit", year==2016) %>% select(stabbr, taxcen=value) %>% mutate(taxcen=taxcen / 1000)) %>%
   mutate(pdiff=taxcps / taxcen * 100 - 100,
          level="sg")
-slgcomp <- pit_shares %>%
+
+# 2) what if the cps data reflected state and local income taxes
+slgcomp <- pit_cps %>%
   group_by(stabbr) %>%
+  # put both measures in # millions
   summarise(taxcps=sum(taxcps) / 1e6) %>%
   left_join(slgfin %>% filter(level==1, aggvar=="iit", year==2016) %>% select(stabbr, taxcen=value) %>% mutate(taxcen=taxcen / 1000)) %>%
   mutate(pdiff=taxcps / taxcen * 100 - 100,
@@ -1016,7 +1040,7 @@ taxcomp %>%
 
 taxcomp %>% filter(stabbr=="NY")
 taxcomp %>% filter(stabbr %in% globals$case_study_states) %>% arrange(stabbr, level)
-# wow they are pretty far off
+# taxcps is much bigger than taxcen in general
 
 cor(taxcomp %>% filter(level=="slg", !is.na(taxcen)) %>% select(starts_with("tax")))
 cor(taxcomp %>% filter(level=="sg", !is.na(taxcen)) %>% select(starts_with("tax")))
@@ -1137,11 +1161,11 @@ basic_cex <- taxexp %>%
 
 ```{r}
 basic_cex %>%
-  kable(caption="CEX expends, different laws", digits=0, format.args=list(big.mark=","))
+  kable(caption="CEX expenditures, different laws", digits=0, format.args=list(big.mark=","))
 ```
 
 
-### U.S. plot of income, goods expends, sales tax base
+### U.S. plot of income, goods expenditures, sales tax base
 ```{r gst, echo=FALSE, message=FALSE, warning=FALSE}
 vars <- c("incomebt", "gsexp_avg", "pew_taxexp_avg")
 vlabs <- c("Income before tax",  
@@ -1426,7 +1450,7 @@ ggsave(plot=p, filename="./results/taxes/proptax/proptax_byage_css_xus.png", wid
 # State tables and graphs
 
 ```{r data_prep, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
-
+# nothing needed here now
 ```
 
 
@@ -1592,8 +1616,6 @@ p
 ggsave("./results/states/pctold_map.png", p, width=8, height=6.5, units="in")
 
 ```
-
-
 
 
 ```{r mdnage_map, echo=FALSE, message=FALSE, warning=FALSE}
@@ -1810,44 +1832,6 @@ tabdat %>%
 ```
 
 
-### California
-```{r CA, echo=FALSE, message=FALSE, warning=FALSE}
-
-```
-
-
-### New Hampshire
-```{r NH, echo=FALSE, message=FALSE, warning=FALSE}
-
-```
-
-
-### New York
-```{r NY, echo=FALSE, message=FALSE, warning=FALSE}
-
-```
-
-
-### Ohio
-```{r OH, echo=FALSE, message=FALSE, warning=FALSE, include=TRUE}
-
-
-```
-
-
-### Tennessee
-```{r TN, echo=FALSE, message=FALSE, warning=FALSE}
-
-
-```
-
-
-### Texas
-```{r TX, echo=FALSE, message=FALSE, warning=FALSE}
-
-```
-
-
 # Health expenditures bar chart
 ```{r hx_bar, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
 hbar <- read_csv(
@@ -1857,7 +1841,7 @@ hbar <- read_csv(
 45-64, 9513
 65-84, 16872
 85+, 32411")
-mabar
+hbar
 
 capt <- "Source: Centers for Medicare and Medicaid Services, National Health Expenditures by Age and Gender, August 2016"
 p <- hbar %>%
@@ -1877,6 +1861,7 @@ ggsave("./results/general/hxpc.png", plot=p, width=8, height=6.5, units="in")
 
 ```
 
+
 ## Medicaid expenditures bar chart
 ```{r ma_bar, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
 # Aged	Individuals with Disabilities	Adults	Children
@@ -1884,7 +1869,6 @@ ggsave("./results/general/hxpc.png", plot=p, width=8, height=6.5, units="in")
 # 
 # All Full or Partial Benefit Enrollees
 # $5,736 
-
 
 mabar <- read_csv(
 "elig_group, maxpe
@@ -1913,6 +1897,5 @@ p
 ggsave("./results/general/maxpe.png", plot=p, width=8, height=6.5, units="in")
 
 ```
-
 
 

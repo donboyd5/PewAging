@@ -49,7 +49,8 @@ agelabs <- c(paste0("Younger (< ", min(workage), ")"), paste0("Working age (", m
 
 ```{r source_notes, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
 cps_src <- "Annual Social and Economic (ASEC) supplement to the Current Population Survey, pooled 2017 and 2018"
-wc_src <- "Weldon Cooper Center for Public Service, University of Virginia, Updated December 2018, www.coopercenter.org/demographics"
+# wc_src <- "Weldon Cooper Center for Public Service, University of Virginia, updated December 2018, www.coopercenter.org/demographics"
+wc_src <- "Weldon Cooper Center for Public Service, University of Virginia, updated December 2018, https://demographics.coopercenter.org/"
 
 ```
 
@@ -226,6 +227,7 @@ p2 <- p + gband(1946, 1964, alpha=.4) +
 p2
 
 ggsave(plot=p2, filename="./results/general/fertrate_ssa.png", width=8, height=6, units="in")
+ggsave(plot=p2, filename=here::here("figures_in_report", "fertrate_ssa.png"), width=8, height=6, units="in")
 
 ```
 
@@ -376,6 +378,7 @@ p <- le %>%
 p
 
 ggsave(plot=p, filename="./results/general/lifeexp_ssa.png", width=8, height=6, units="in")
+ggsave(plot=p, filename=here::here("figures_in_report", "lifeexp_ssa.png"), width=8, height=6, units="in")
 
 ```
 
@@ -444,6 +447,7 @@ p3 <- p2 +
 p3
 
 ggsave(plot=p3, filename="./results/general/uspopshares_subgroups.png", width=8, height=6, units="in")
+ggsave(plot=p3, filename=here::here("figures_in_report", "uspopshares_subgroups.png"), width=8, height=6, units="in")
 
 ```
 
@@ -532,6 +536,7 @@ p3 <- p2 +
 p3
 
 ggsave(plot=p3, filename="./results/general/uspopgr_subgroups.png", width=8, height=6, units="in")
+ggsave(plot=p3, filename=here::here("figures_in_report", "uspopgr_subgroups.png"), width=8, height=6, units="in")
 
 ```
 
@@ -597,6 +602,7 @@ p2
 # p3
 
 ggsave(plot=p2, filename="./results/general/agedep_un.png", width=8, height=6, units="in")
+ggsave(plot=p2, filename=here::here("figures_in_report", "agedep_un.png"), width=8, height=6, units="in")
 
 ```
 
@@ -636,7 +642,6 @@ f(2)
 f(3)
 
 ```
-
 
 
 ## Income tax
@@ -755,7 +760,7 @@ usitax <- pit_stage %>%
 ```{r cps_pit_graph, echo=FALSE, message=FALSE, warning=FALSE, include=TRUE}
 dnote1 <- "Author's analysis of "
 dnote3 <- "Values are weighted means by age, smoothed with local regression."
-capt <- paste0("Source: ", "\n", dnote1, cps_src, "\n", dnote3)
+# capt <- paste0("Source: ", "\n", dnote1, cps_src, "\n", dnote3)
 capt <- paste0("Source: ", dnote1, cps_src, ". ", dnote3)
 # capt
 capt <- str_wrap(capt, 80)
@@ -780,6 +785,7 @@ p <- usitax %>%
   theme(axis.text.x=element_text(angle=0,hjust=.9,vjust=0.9))
 p
 ggsave(plot=p, filename="./results/taxes/pit/income_itax.png", width=8, height=6, units="in")
+ggsave(plot=p, filename=here::here("figures_in_report", "income_itax.png"), width=8, height=6, units="in")
 
 ```
 
@@ -787,9 +793,9 @@ ggsave(plot=p, filename="./results/taxes/pit/income_itax.png", width=8, height=6
 #### Case-study states income and PIT graph
 ```{r}
 # replace the old polynomial graph with smoothed regression graph
-cps_src <- "Source: Annual Social and Economic (ASEC) supplement to the Current Population Survey, pooled 2017 and 2018"
+# cps_src <- "Source: Annual Social and Economic (ASEC) supplement to the Current Population Survey, pooled 2017 and 2018"
 note <- "Values are weighted means by age, smoothed with local regression."
-capt <- paste0(cps_src, "\n", note)
+capt <- paste0("Source: ", cps_src, "\n", note)
 
 
 #.. graphs of income and tax by age, case study states ####
@@ -850,6 +856,8 @@ ml <- marrangeGrob(list(p1, p2), nrow=2, ncol=1, top=NULL)
 ml
 # use one or the other of these
 ggsave("./results/income_and_tax_byage_css_xus_loess.png", ml, width=8, height=11, units="in")
+ggsave(plot=ml, filename=here::here("figures_in_report", "income_and_tax_byage_css_xus_loess.png"), 
+       width=8, height=11, units="in")
 
 ```
 
@@ -989,7 +997,7 @@ enone_tabs %>%
     write_csv(paste0("./results/taxes/pit/", "css_pitchanges.csv"))
 
 # now show tables for individual states
-pit_src <- "Author's analysis of (1) data from the Annual Social and Economic (ASEC) supplement to the Current Population Survey, pooled 2017 and 2018, and (2) projections from the Weldon Cooper Center for Public Service, University of Virginia, Updated December 2018, www.coopercenter.org/demographics."
+pit_src <- "Author's analysis of (1) data from the Annual Social and Economic (ASEC) supplement to the Current Population Survey, pooled 2017 and 2018, and (2) projections from the Weldon Cooper Center for Public Service, University of Virginia, updated December 2018, https://demographics.coopercenter.org/."
 pittab <- function(st){
   enone_tabs %>% 
     filter(stabbr==st) %>%
@@ -1130,7 +1138,7 @@ pdata <- pit_changes %>%
   mutate(pct_change=pct_change / 100)
 usvals <- pdata %>% summarise_at(vars(pct_change, change), ~median(., na.rm=TRUE))
 
-l1 <- "Source: Author's analysis of data from Current Population Survey and from University of Virginia, Weldon Cooper Center for Public Service (Updated December 2018)."
+l1 <- "Source: Author's analysis of data from Current Population Survey and from University of Virginia, Weldon Cooper Center for Public Service, updated December 2018."
 l2 <- "Notes: (1) States without broad-based income taxes excluded (including case-study state Texas). (2) Analysis is similar to Felix & Watkins 2013, with updated information."
 wraplen <- 100
 srcnote <- paste0("\n", str_wrap(l1, wraplen), "\n", str_wrap(l2, wraplen))
@@ -1166,6 +1174,8 @@ p <- pdata %>%
   guides(colour=guide_legend(title=NULL), size=guide_legend(title=NULL))
 p
 ggsave(plot=p, filename="./results/taxes/pit/pit_demog.png", width=8, height=6, units="in")
+ggsave(plot=p, filename=here::here("figures_in_report", "pit_demog.png"), width=8, height=6, units="in")
+
 ```
 
 
@@ -1266,6 +1276,7 @@ p <- basic_cex %>%
   theme_bw()
 p
 ggsave(plot=p, filename="./results/taxes/salestax/sut_incexp.png", width=8, height=6, units="in")
+ggsave(plot=p, filename=here::here("figures_in_report", "sut_incexp.png"), width=8, height=6, units="in")
 
 ```
 
@@ -1314,7 +1325,7 @@ write_csv(taxexp_age_statedemog, "./results/taxes/salestax/taxexp_age_statedemog
 ### Per-capita taxable expenditures with US demographics and states' bases
 ```{r sutpercap_usdemog, echo=FALSE, message=FALSE, warning=FALSE}
 # per-capita taxable expenditures
-cex_src <- "Author's analysis of Consumer Expenditure Survey data on purchases, Weldon Cooper population projections (Updated December 2018), and state tax laws."
+cex_src <- "Author's analysis of Consumer Expenditure Survey data on purchases, Weldon Cooper population projections updated December 2018, and state tax laws."
 capt <- "Per-capita taxable sales, 2017 dollars, based on projected U.S. demographics, with state sales tax bases"
 
 taxexp_age_usdemog %>%
@@ -1335,7 +1346,7 @@ taxexp_age_usdemog %>%
 ### Per-capita taxable expenditures with states' demographics and states' bases
 ```{r sutpercap_stdemog, echo=FALSE, message=FALSE, warning=FALSE}
 # per-capita taxable expenditures
-cex_src <- "Author's analysis of Consumer Expenditure Survey data on purchases, Weldon Cooper population projections (Updated December 2018), and state tax laws."
+cex_src <- "Author's analysis of Consumer Expenditure Survey data on purchases, Weldon Cooper population projections updated December 2018, and state tax laws."
 capt <- "Per-capita taxable sales, 2017 dollars, based on projected state demographics, with state sales tax bases"
 
 taxexp_age_statedemog %>%
@@ -1356,7 +1367,7 @@ taxexp_age_statedemog %>%
 ### State tables with state laws and demographics
 ```{r sut_stdemog_setup, echo=FALSE, message=FALSE, warning=FALSE}
 # per-capita taxable expenditures -- USE THIS ONE ----
-cex_src <- "Author's analysis of Consumer Expenditure Survey data on purchases, Weldon Cooper population projections (Updated December 2018), and state tax laws."
+cex_src <- "Author's analysis of Consumer Expenditure Survey data on purchases, Weldon Cooper population projections updated December 2018, and state tax laws."
 capt <- "Per-capita taxable sales, 2017 dollars, based on projected state demographics, with state sales tax bases"
 
 addtots_sut <- function(df) {
@@ -1478,6 +1489,7 @@ p <- usptax %>%
   theme(axis.text.x=element_text(angle=0,hjust=.9,vjust=0.9))
 p
 ggsave(plot=p, filename="./results/taxes/proptax/hval_ptax.png", width=8, height=6, units="in")
+ggsave(plot=p, filename=here::here("figures_in_report", "hval_ptax.png"), width=8, height=6, units="in")
 
 ```
 ### Average property tax by age, case study states
@@ -1511,7 +1523,7 @@ p
 # w <- 6.5 * mult; h <- 5 * mult
 # w <- 8; h <- 11 / 2
 ggsave(plot=p, filename="./results/taxes/proptax/proptax_byage_css_xus.png", width=8, height=6, units="in")
-
+ggsave(plot=p, filename=here::here("figures_in_report", "proptax_byage_css_xus.png"), width=8, height=6, units="in")
 
 ```
 
@@ -1541,7 +1553,7 @@ popshares <- wpop %>%
 usvals <- popshares %>% filter(stabbr=="US")
 
 
-capt <- "\nSource: Author's analysis of projections from University of Virginia, Weldon Cooper Center for Public Service, Updated December 2018, www.coopercenter.org/demographics"
+capt <- "\nSource: Author's analysis of projections from University of Virginia, Weldon Cooper Center for Public Service, updated December 2018, https://demographics.coopercenter.org/"
 p <- popshares %>% 
   filter(!stabbr %in% c("US")) %>%
   mutate(stype=ifelse(stabbr %in% globals$case_study_states, "Case study\nstates", "Other states"),
@@ -1579,6 +1591,8 @@ p2
 
 #ggsave(p, file=paste0("./results/age65p_1030_scatter.png"), width=10, height=6.25, units="in")
 ggsave(plot=p2, file=paste0("./results/states/age65p_2040_scatter_repel2.png"), width=10, height=6.25, units="in")
+ggsave(plot=p2, filename=here::here("figures_in_report", "age65p_2040_scatter_repel2.png"),
+       width=10, height=6.25, units="in")
 
 ```
 
@@ -1658,15 +1672,24 @@ agepop <- wpop %>%
 #.. Draw map ----
 # group the age data
 # INCLUDING DC IS CRITICAL IF IT IS IN THE MAPDATA (else leave it out of map data) -- else we will get an NA facet
-cuts <- c(0, 14, 17, 19, 21, 24, 30)
+# cuts <- c(0, 14, 17, 19, 21, 24, 30)
 cuts <- c(0, 14, 16, 18, 20, 24, 30)
 agepop$agroup <- cut(agepop$pctold, breaks=cuts)
 # count(agepop, year, agroup) %>% spread(year, n)
 
-cutlabs <- c("<= 14%", levels(agepop$agroup)[2:5], "> 24%")
-# cbind(levels(agepop$agroup), cutlabs)
+# labs <- c("<= 14%", levels(agepop$agroup)[2:5], "> 24%")
+
+levs <- levels(agepop$agroup)
+labs <- c("<= 14%",
+          " > 14% to 16%",
+          " > 16% to 18%",
+          " > 18% to 20%",
+          " > 20% to 24%",
+          " > 24%")
+# cbind(levs, labs)
+
 agepop <- agepop %>%
-  mutate(agroup=factor(agroup, labels=cutlabs))
+  mutate(agroup=factor(agroup, labels=labs))
 # count(agepop, agroup)
 
 capt <- str_wrap(paste0("Source: Author's analysis of projections from ", wc_src), 90)
@@ -1678,7 +1701,7 @@ p <- get_stateplot(agepop, "agroup") +
   guides(fill=guide_legend(title="% age 65+")) +
   geom_polygon(color = "black", fill=NA) +
   facet_wrap(~year, ncol=1) +
-  ggtitle("Percent of population aged 65+") +
+  ggtitle("Percent of population age 65+") +
   theme(plot.title = element_text(size = 12, face = "bold"),
         strip.background = element_rect(colour="lightgrey", fill=NA),
         strip.text = element_text(size = 10, face="bold")) +
@@ -1686,6 +1709,7 @@ p <- get_stateplot(agepop, "agroup") +
   theme(plot.caption = element_text(hjust=0, size=8))
 p
 ggsave("./results/states/pctold_map.png", p, width=8, height=6.5, units="in")
+ggsave(plot=p, filename=here::here("figures_in_report", "pctold_map.png"), width=8, height=6.5, units="in")
 
 ```
 
@@ -1738,7 +1762,7 @@ ggsave("./results/states/mdnage_map.png", p, width=8, height=6.5, units="in")
 
 ## Cross-state information
 ```{r css_data, echo=FALSE, message=FALSE, warning=FALSE}
-wcnote <- "Author's analysis of projections from University of Virginia,\nWeldon Cooper Center for Public Service, Updated December 2018, www.coopercenter.org/demographics"
+wcnote <- "Author's analysis of projections from University of Virginia,\nWeldon Cooper Center for Public Service, updated December 2018, https://demographics.coopercenter.org/"
 
 storder <- c("US", globals$case_study_states) # order in which we want states listed!
 stnames <- getstname(storder)
@@ -1905,7 +1929,7 @@ tabdat %>%
 
 
 # Health expenditures bar chart
-```{r hx_bar, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+```{r hx_bar, echo=FALSE, message=FALSE, warning=FALSE, include=TRUE}
 hbar <- read_csv(
 "age_group, hxpc
 0-18, 3552
@@ -1967,6 +1991,7 @@ p <- mabar %>%
 p
 
 ggsave("./results/general/maxpe.png", plot=p, width=8, height=6.5, units="in")
+ggsave(plot=p, filename=here::here("figures_in_report", "maxpe.png"), width=8, height=6.5, units="in")
 
 ```
 
